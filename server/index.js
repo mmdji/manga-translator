@@ -21,7 +21,6 @@ const upload = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 
-// تابع شکستن متن
 function wrapText(text, font, fontSize, maxWidth) {
   if (!text) return ["..."];
   const words = text.split(' ');
@@ -37,7 +36,6 @@ function wrapText(text, font, fontSize, maxWidth) {
   return lines;
 }
 
-// تابع بررسی تداخل
 function isOverlapping(rect1, rect2) {
   return (
     rect1.x < rect2.x + rect2.width &&
@@ -61,41 +59,31 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       displayName: "MangaFile",
     });
 
-    console.log("2. Analyzing with Gemini 2.5 Flash (Ultra-Colloquial Mode)...");
+    console.log("2. Analyzing Context & Emotions...");
     const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash", 
         generationConfig: { responseMimeType: "application/json" } 
     });
 
-    // 🔥🔥🔥 پرامپت جدید و خیلی سخت‌گیرانه برای لحن کوچه بازاری 🔥🔥🔥
+    // 🔥🔥🔥 پرامپت جدید: تمرکز بر احساسات و حذف متن اصلی 🔥🔥🔥
     const prompt = `
-    Analyze this whole PDF page by page. Identify ALL speech bubbles.
-    Return a JSON array where each object contains:
-    1. "page_number": Integer (1-based).
-    2. "text": The Persian translation.
-    3. "box_2d": [ymin, xmin, ymax, xmax] (normalized 0-1000).
+    Analyze this PDF page by page. 
+    **Step 1: Visual Analysis:** Look at the characters' FACIAL EXPRESSIONS and the SCENE MOOD.
+    - If a character is shouting (open mouth, angry eyes), translate with force (e.g., using "!" or aggressive words).
+    - If a character is sad/whispering, use softer language.
+    - Ensure the translation matches the *emotion* of the scene, not just the words.
 
-    ⚠️ EXTREMELY IMPORTANT TRANSLATION RULES (TEHRANI SPOKEN PERSIAN):
+    **Step 2: Detection:** Identify ALL speech bubbles.
     
-    1. **NO BOOKISH LANGUAGE (ممنوعیت زبان کتابی):**
-       - NEVER use "است". Use "ـه" or drop it. (Ex: "خوب است" ❌ -> "خوبه" ✅)
-       - NEVER use "آنجا". Use "اونجا".
-       - NEVER use "آیا". Just ask the question. (Ex: "آیا می‌آیی؟" ❌ -> "میای؟" ✅)
-       - NEVER use "اکنون". Use "الان".
-       - NEVER use "بسیار". Use "خیلی".
-       - NEVER use "زیرا". Use "چون".
+    Return a JSON array:
+    1. "page_number": Integer.
+    2. "text": The Persian translation (Spoken/Colloquial/Emotional).
+    3. "box_2d": [ymin, xmin, ymax, xmax] (Original text bounding box).
 
-    2. **PRONUNCIATION CHANGES (تبدیل کلمات به محاوره):**
-       - "خانه" -> "خونه"
-       - "می‌روم" -> "میرم"
-       - "آن‌ها" -> "اونا"
-       - "اگر" -> "اگه"
-       - "را" -> "رو" or "ـو" (Ex: "کتاب را" -> "کتابو")
-
-    3. **TONE (لحن):**
-       - Translate like a cool Manga Fan-Subber intended for teenagers.
-       - Use idioms and slang where appropriate.
-       - Keep sentences short and punchy.
+    **Translation Rules:**
+    - Use "Tehrani Spoken Persian".
+    - BE NATURAL. Don't be robotic.
+    - Example: "Stop it!" (Angry face) -> "بسه دیگه!" (Not "متوقفش کن")
     `;
 
     const result = await model.generateContent([
@@ -106,7 +94,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     const translations = JSON.parse(result.response.text());
     console.log(`✅ Found ${translations.length} dialogs.`);
 
-    console.log("3. Generating PDF...");
+    console.log("3. Writing to PDF...");
     const pdfDoc = await PDFDocument.load(req.file.buffer);
     pdfDoc.registerFontkit(fontkit);
     
@@ -134,14 +122,16 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       const originalBoxY = height - ((ymax / 1000) * height);
       
       let fontSize = 10;
-      let padding = 8;
-      let newBoxWidth = Math.max(originalBoxWidth, 120); 
+      let padding = 10;
+      // کمی باکس را عریض‌تر می‌گیریم تا مطمئن شویم متن زیرین پاک می‌شود
+      let newBoxWidth = Math.max(originalBoxWidth, 110); 
       
-      if (item.text.length > 60) fontSize = 9;
-      
+      if (item.text.length > 50) fontSize = 9;
+
       let textLines = wrapText(item.text, customFont, fontSize, newBoxWidth - (padding * 2));
       let contentHeight = (textLines.length * fontSize * 1.4) + (padding * 2);
       
+      // مکان‌دهی: دقیقاً روی متن اصلی (برای پوشاندن) اما با رعایت تداخل
       let newBoxY = originalBoxY - 5; 
       let finalBoxY = newBoxY - contentHeight + fontSize;
 
@@ -168,16 +158,16 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       }
       drawnBoxes[pageIndex].push(currentRect);
 
-      // رسم کادر
+      // رسم کادر سفید (100% کدر برای پاک کردن متن زیر)
       currentPage.drawRectangle({
         x: currentRect.x,
         y: currentRect.y,
         width: currentRect.width,
         height: currentRect.height,
-        color: rgb(1, 1, 1),
+        color: rgb(1, 1, 1), // سفید مطلق
         borderColor: rgb(0, 0, 0),
         borderWidth: 1.5,
-        opacity: 0.95,
+        opacity: 1, // 👈 تغییر مهم: کاملاً کدر برای پاک کردن متن زیر
       });
 
       // نوشتن متن

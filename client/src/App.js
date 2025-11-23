@@ -2,20 +2,15 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { Upload, Loader2, Download } from 'lucide-react';
 
-// آدرس سرور (آن را مطابق سرور خود تنظیم کنید)
 const API_URL = 'https://manga-translator-ib1b.onrender.com';
 
-// --- کامپوننت لوگوی جدید Mangaji ---
 const MangaJiLogo = ({ className = "", size = "text-5xl md:text-7xl" }) => (
   <div className={`relative select-none flex items-center justify-center ${className}`} style={{ fontFamily: 'sans-serif' }}>
-    {/* لایه افکت RGB برای MANGA */}
     <div className="relative mr-1">
       <span className={`${size} font-black absolute -top-[2px] -left-[2px] text-red-600 opacity-70 mix-blend-screen blur-[1px]`}>MANGA</span>
       <span className={`${size} font-black absolute top-[2px] left-[2px] text-blue-600 opacity-70 mix-blend-screen blur-[1px]`}>MANGA</span>
       <span className={`${size} font-black relative text-white z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]`}>MANGA</span>
     </div>
-    
-    {/* بخش JI با رنگ متفاوت و درخشش */}
     <div className="relative">
        <span className={`${size} font-black absolute -top-[2px] -left-[2px] text-purple-600 opacity-80 blur-[2px]`}>JI</span>
        <span className={`${size} font-black relative text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500 z-10 tracking-tighter drop-shadow-[0_0_15px_rgba(168,85,247,0.6)]`}>JI</span>
@@ -29,7 +24,6 @@ function App() {
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
 
-  // --- مدیریت رویدادهای Drag & Drop ---
   const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
   const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
   const handleDrop = (e) => {
@@ -64,19 +58,15 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-[Vazirmatn] overflow-hidden">
-      {/* Header */}
+      
       <div className="text-center mb-12 relative z-10">
         <div className="absolute -inset-10 bg-gradient-to-r from-cyan-600/30 via-purple-600/30 to-pink-600/30 rounded-full blur-3xl opacity-30 -z-10 animate-pulse"></div>
-        
-        {/* استفاده از لوگوی جدید در هدر */}
         <MangaJiLogo className="mb-4" />
-        
         <p className="text-slate-300 tracking-[0.2em] uppercase text-sm md:text-base font-bold bg-slate-900/50 py-2 px-4 rounded-full inline-block backdrop-blur-sm border border-slate-700/50">
           ترجمه هوشمند مانگا با استایل کمیک
         </p>
       </div>
 
-      {/* Upload Box */}
       <div 
         className={`bg-slate-900/60 backdrop-blur-2xl p-8 rounded-[2.5rem] border-2 text-center w-full max-w-xl shadow-2xl transition-all duration-500 relative z-10 ${
           isDragging ? 'border-cyan-400 shadow-[0_0_50px_rgba(6,182,212,0.4)] scale-105' : 'border-slate-700/80 hover:border-slate-600 shadow-[0_0_30px_rgba(0,0,0,0.5)]'
@@ -91,7 +81,6 @@ function App() {
           
           <div className="flex flex-col items-center gap-8 z-10 relative">
             {file ? (
-              // استفاده از لوگوی جدید وقتی فایل انتخاب شده (کمی کوچکتر)
               <div className="animate-bounce-slow">
                  <MangaJiLogo size="text-4xl" />
               </div>
@@ -100,12 +89,13 @@ function App() {
             )}
             
             <div className="space-y-3">
+              {/* تغییر متن برای موبایل و دسکتاپ */}
               <span className={`text-xl font-bold block transition-colors ${file ? 'text-cyan-300' : 'text-slate-200'}`}>
-                {file ? file.name : "فایل PDF مانگا را اینجا رها کنید"}
+                {file ? file.name : "انتخاب فایل PDF مانگا"}
               </span>
               {!file && (
                 <span className="text-sm text-slate-400 block bg-slate-800/70 px-4 py-2 rounded-full">
-                  یا برای انتخاب کلیک کنید
+                  (یا فایل را اینجا رها کنید)
                 </span>
               )}
             </div>
@@ -118,19 +108,27 @@ function App() {
           </div>
         )}
 
+        {/* اصلاح دکمه: رنگ سفید اجباری و چیدمان RTL */}
         <button 
           onClick={handleUpload} 
           disabled={loading || !file}
-          className={`w-full mt-8 py-5 rounded-2xl font-black text-xl flex justify-center items-center gap-3 transition-all duration-300 relative overflow-hidden
+          className={`w-full mt-8 py-5 rounded-2xl font-black text-xl flex justify-center items-center gap-3 transition-all duration-300 relative overflow-hidden text-white
             ${loading || !file 
-              ? 'bg-slate-800 text-slate-600 cursor-not-allowed opacity-70' 
-              : 'bg-gradient-to-r from-cyan-500 via-blue-600 to-purple-700 text-white shadow-[0_5px_25px_rgba(6,182,212,0.4)] hover:shadow-[0_10px_40px_rgba(168,85,247,0.5)] hover:-translate-y-1 active:translate-y-0 active:scale-[0.98]'
+              ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-80' 
+              : 'bg-gradient-to-r from-cyan-500 via-blue-600 to-purple-700 shadow-[0_5px_25px_rgba(6,182,212,0.4)] hover:shadow-[0_10px_40px_rgba(168,85,247,0.5)] hover:-translate-y-1 active:translate-y-0 active:scale-[0.98]'
             }`}
         >
-          {loading && <div className="absolute inset-0 bg-white/20 animate-pulse-fast z-0"></div>}
-          <div className="relative z-10 flex items-center gap-3">
-            {loading ? <><Loader2 className="animate-spin w-7 h-7" /> در حال پردازش...</> : <><Download className="w-7 h-7" /> شروع ترجمه و دانلود</>}
-          </div>
+          {/* چیدمان RTL برای لودینگ */}
+          {loading ? (
+             <div className="flex flex-row-reverse items-center gap-3">
+               <span className="text-white">...در حال پردازش</span>
+               <Loader2 className="animate-spin w-7 h-7 text-white" />
+             </div>
+          ) : (
+             <div className="flex items-center gap-3">
+               <Download className="w-7 h-7" /> شروع ترجمه و دانلود
+             </div>
+          )}
         </button>
       </div>
       
