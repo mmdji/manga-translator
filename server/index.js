@@ -16,41 +16,41 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// استفاده از حافظه رم برای آپلود (سازگار با Render)
 const upload = multer({ storage: multer.memoryStorage() });
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 
+// --- تابع کمکی: شکستن متن طولانی ---
 function wrapText(text, font, fontSize, maxWidth) {
   if (!text) return ["..."];
   const words = text.split(' ');
   let lines = [];
   let currentLine = words[0];
+
   for (let i = 1; i < words.length; i++) {
     const word = words[i];
     const width = font.widthOfTextAtSize(currentLine + " " + word, fontSize);
-    if (width < maxWidth) currentLine += " " + word;
-    else { lines.push(currentLine); currentLine = word; }
+    if (width < maxWidth) {
+      currentLine += " " + word;
+    } else {
+      lines.push(currentLine);
+      currentLine = word;
+    }
   }
   lines.push(currentLine);
   return lines;
 }
 
-function isOverlapping(rect1, rect2) {
-  return (
-    rect1.x < rect2.x + rect2.width &&
-    rect1.x + rect1.width > rect2.x &&
-    rect1.y < rect2.y + rect2.height &&
-    rect1.y + rect1.height > rect2.y
-  );
-}
-
 app.post('/api/translate', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایلی ارسال نشد.' });
 
+  // مسیر موقت برای آپلود به گوگل
   const tempFilePath = path.join('/tmp', `upload_${Date.now()}.pdf`);
 
   try {
+    // ذخیره فایل در پوشه موقت سیستم
     fs.writeFileSync(tempFilePath, req.file.buffer);
 
     console.log("1. Uploading to Google...");
@@ -59,31 +59,24 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       displayName: "MangaFile",
     });
 
-    console.log("2. Analyzing Context & Emotions...");
+    console.log("2. Analyzing with Gemini 2.5 Flash...");
     const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash", 
         generationConfig: { responseMimeType: "application/json" } 
     });
 
-    // 🔥🔥🔥 پرامپت جدید: تمرکز بر احساسات و حذف متن اصلی 🔥🔥🔥
+    // پرامپت: شناسایی دقیق کادرها + ترجمه محاوره‌ای
     const prompt = `
-    Analyze this PDF page by page. 
-    **Step 1: Visual Analysis:** Look at the characters' FACIAL EXPRESSIONS and the SCENE MOOD.
-    - If a character is shouting (open mouth, angry eyes), translate with force (e.g., using "!" or aggressive words).
-    - If a character is sad/whispering, use softer language.
-    - Ensure the translation matches the *emotion* of the scene, not just the words.
+    Analyze this whole PDF page by page. Identify ALL speech bubbles.
+    Return a JSON array where each object contains:
+    1. "page_number": Integer (1-based).
+    2. "text": The Persian translation.
+    3. "box_2d": [ymin, xmin, ymax, xmax] (normalized 0-1000).
 
-    **Step 2: Detection:** Identify ALL speech bubbles.
-    
-    Return a JSON array:
-    1. "page_number": Integer.
-    2. "text": The Persian translation (Spoken/Colloquial/Emotional).
-    3. "box_2d": [ymin, xmin, ymax, xmax] (Original text bounding box).
-
-    **Translation Rules:**
-    - Use "Tehrani Spoken Persian".
-    - BE NATURAL. Don't be robotic.
-    - Example: "Stop it!" (Angry face) -> "بسه دیگه!" (Not "متوقفش کن")
+    🔥 RULES:
+    - Tone: Spoken/Colloquial Persian (محاوره‌ای).
+    - Convert "است/آنجا/زیرا" to "ـه/اونجا/چون".
+    - Keep it short to fit the bubbles.
     `;
 
     const result = await model.generateContent([
@@ -94,101 +87,84 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     const translations = JSON.parse(result.response.text());
     console.log(`✅ Found ${translations.length} dialogs.`);
 
-    console.log("3. Writing to PDF...");
+    console.log("3. Generating PDF...");
     const pdfDoc = await PDFDocument.load(req.file.buffer);
     pdfDoc.registerFontkit(fontkit);
     
     const fontPath = path.join(__dirname, 'font.ttf');
-    if (!fs.existsSync(fontPath)) throw new Error("font.ttf یافت نشد!");
+    if (!fs.existsSync(fontPath)) throw new Error("فایل font.ttf یافت نشد!");
     const fontBytes = fs.readFileSync(fontPath); 
     const customFont = await pdfDoc.embedFont(fontBytes);
     const pages = pdfDoc.getPages();
-    
-    const drawnBoxes = {};
 
     for (const item of translations) {
       if (!item.box_2d || !item.text || !item.page_number) continue;
       const pageIndex = item.page_number - 1;
       if (pageIndex >= pages.length) continue;
       
-      if (!drawnBoxes[pageIndex]) drawnBoxes[pageIndex] = [];
-
       const currentPage = pages[pageIndex];
       const { width, height } = currentPage.getSize();
       const [ymin, xmin, ymax, xmax] = item.box_2d;
 
+      // 1. محاسبه دقیق مختصات کادر اصلی (متن انگلیسی)
       const originalBoxX = (xmin / 1000) * width;
+      const originalBoxY = height - ((ymax / 1000) * height); // پایینِ باکس
       const originalBoxWidth = ((xmax - xmin) / 1000) * width;
-      const originalBoxY = height - ((ymax / 1000) * height);
-      
+      const originalBoxHeight = ((ymax - ymin) / 1000) * height;
+
+      // 2. تنظیمات ظاهری
       let fontSize = 10;
-      let padding = 10;
-      // کمی باکس را عریض‌تر می‌گیریم تا مطمئن شویم متن زیرین پاک می‌شود
-      let newBoxWidth = Math.max(originalBoxWidth, 110); 
-      
-      if (item.text.length > 50) fontSize = 9;
+      if (item.text.length > 60) fontSize = 9;
+      if (item.text.length > 100) fontSize = 8;
 
-      let textLines = wrapText(item.text, customFont, fontSize, newBoxWidth - (padding * 2));
-      let contentHeight = (textLines.length * fontSize * 1.4) + (padding * 2);
-      
-      // مکان‌دهی: دقیقاً روی متن اصلی (برای پوشاندن) اما با رعایت تداخل
-      let newBoxY = originalBoxY - 5; 
-      let finalBoxY = newBoxY - contentHeight + fontSize;
+      const coverPadding = 2; // مقدار پوشش اضافی برای لاک غلط‌گیر
 
-      let currentRect = {
-        x: originalBoxX,
-        y: finalBoxY,
-        width: newBoxWidth,
-        height: contentHeight
-      };
-
-      // جلوگیری از تداخل
-      let overlapFound = true;
-      let attempts = 0;
-      while (overlapFound && attempts < 5) {
-        overlapFound = false;
-        for (const existingBox of drawnBoxes[pageIndex]) {
-          if (isOverlapping(currentRect, existingBox)) {
-            overlapFound = true;
-            currentRect.y -= (existingBox.height + 5); 
-            break; 
-          }
-        }
-        attempts++;
-      }
-      drawnBoxes[pageIndex].push(currentRect);
-
-      // رسم کادر سفید (100% کدر برای پاک کردن متن زیر)
+      // 3. رسم کادر سفید یکدست (Solid White) روی متن اصلی
       currentPage.drawRectangle({
-        x: currentRect.x,
-        y: currentRect.y,
-        width: currentRect.width,
-        height: currentRect.height,
-        color: rgb(1, 1, 1), // سفید مطلق
-        borderColor: rgb(0, 0, 0),
-        borderWidth: 1.5,
-        opacity: 1, // 👈 تغییر مهم: کاملاً کدر برای پاک کردن متن زیر
+        x: originalBoxX - coverPadding,
+        y: originalBoxY - coverPadding,
+        width: originalBoxWidth + (coverPadding * 2),
+        height: originalBoxHeight + (coverPadding * 2),
+        color: rgb(1, 1, 1), // سفید خالص
+        borderWidth: 0,      // بدون حاشیه
+        opacity: 1.0,        // کاملاً کدر (متن زیر را می‌پوشاند)
       });
 
-      // نوشتن متن
-      let currentTextY = currentRect.y + currentRect.height - padding - fontSize;
+      // 4. محاسبه متن برای وسط‌چین شدن
+      // عرض مفید برای متن (کمی کمتر از عرض باکس)
+      const effectiveWidth = Math.max(originalBoxWidth - 4, 40); 
+      
+      let textLines = wrapText(item.text, customFont, fontSize, effectiveWidth);
+      
+      // محاسبه ارتفاع کل متن
+      const totalTextHeight = textLines.length * (fontSize * 1.3); 
+
+      // محاسبه نقطه شروع عمودی (برای وسط‌چین کردن در ارتفاع باکس)
+      let currentTextY = originalBoxY + (originalBoxHeight / 2) + (totalTextHeight / 2) - fontSize;
+
+      // 5. نوشتن متن
       for (const line of textLines) {
         const lineWidth = customFont.widthOfTextAtSize(line, fontSize);
-        const centeredX = currentRect.x + (currentRect.width - lineWidth) / 2;
+        // محاسبه نقطه شروع افقی (برای وسط‌چین کردن در عرض باکس)
+        const centeredX = originalBoxX + (originalBoxWidth - lineWidth) / 2;
+        
         currentPage.drawText(line, {
           x: centeredX,
           y: currentTextY,
           size: fontSize,
           font: customFont,
-          color: rgb(0, 0, 0),
+          color: rgb(0, 0, 0), // متن سیاه
         });
-        currentTextY -= (fontSize * 1.4);
+        currentTextY -= (fontSize * 1.3); // رفتن به خط بعدی
       }
     }
 
     const pdfBytes = await pdfDoc.save();
+
+    // پاک کردن فایل موقت
     if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
 
+    // ارسال مستقیم بافر به کاربر (بدون ذخیره روی دیسک سرور)
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename=translated_manga.pdf');
     res.setHeader('Content-Length', pdfBytes.length);
