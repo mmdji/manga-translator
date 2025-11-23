@@ -46,7 +46,7 @@ function wrapText(text, font, fontSize, maxWidth) {
 app.post('/api/translate', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایلی ارسال نشد.' });
 
-  // مسیر موقت برای آپلود به گوگل
+  // مسیر موقت برای آپلود به گوگل (چون گوگل فایل فیزیکی می‌خواهد)
   const tempFilePath = path.join('/tmp', `upload_${Date.now()}.pdf`);
 
   try {
@@ -73,10 +73,10 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     2. "text": The Persian translation.
     3. "box_2d": [ymin, xmin, ymax, xmax] (normalized 0-1000).
 
-    🔥 RULES:
-    - Tone: Spoken/Colloquial Persian (محاوره‌ای).
-    - Convert "است/آنجا/زیرا" to "ـه/اونجا/چون".
-    - Keep it short to fit the bubbles.
+    🔥 RULES (PERSIAN):
+    - Tone: Spoken/Colloquial (محاوره‌ای و خودمونی).
+    - NO BOOKISH WORDS: Don't use "است", "آیا", "آنجا". Use "ـه", "چی", "اونجا".
+    - Keep sentences short to fit the bubbles.
     `;
 
     const result = await model.generateContent([
@@ -117,16 +117,18 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       if (item.text.length > 60) fontSize = 9;
       if (item.text.length > 100) fontSize = 8;
 
-      const coverPadding = 2; // مقدار پوشش اضافی برای لاک غلط‌گیر
+      // پدینگ اضافه برای پوشاندن کامل متن زیرین
+      const coverPadding = 3; 
 
-      // 3. رسم کادر سفید یکدست (Solid White) روی متن اصلی
+      // 3. رسم کادر سفید یکدست (Solid White Patch)
+      // این مثل لاک غلط‌گیر عمل می‌کند
       currentPage.drawRectangle({
         x: originalBoxX - coverPadding,
         y: originalBoxY - coverPadding,
         width: originalBoxWidth + (coverPadding * 2),
         height: originalBoxHeight + (coverPadding * 2),
         color: rgb(1, 1, 1), // سفید خالص
-        borderWidth: 0,      // بدون حاشیه
+        borderWidth: 0,      // بدون هیچ حاشیه‌ای
         opacity: 1.0,        // کاملاً کدر (متن زیر را می‌پوشاند)
       });
 
