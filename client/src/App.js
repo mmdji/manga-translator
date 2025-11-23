@@ -1,30 +1,57 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { Upload, Loader2, Download, FileText } from 'lucide-react';
+import { Upload, Loader2, Download } from 'lucide-react';
 
-// ⚡️ تنظیم آدرس سرور
-// برای لوکال: http://localhost:5000
-// برای سرور واقعی: آدرس سرور خود را اینجا بگذارید (مثلا https://my-manga-api.onrender.com)
+// آدرس سرور (آن را مطابق سرور خود تنظیم کنید)
 const API_URL = 'https://manga-translator-ib1b.onrender.com';
+
+// --- کامپوننت لوگوی جدید Mangaji ---
+const MangaJiLogo = ({ className = "", size = "text-5xl md:text-7xl" }) => (
+  <div className={`relative select-none flex items-center justify-center ${className}`} style={{ fontFamily: 'sans-serif' }}>
+    {/* لایه افکت RGB برای MANGA */}
+    <div className="relative mr-1">
+      <span className={`${size} font-black absolute -top-[2px] -left-[2px] text-red-600 opacity-70 mix-blend-screen blur-[1px]`}>MANGA</span>
+      <span className={`${size} font-black absolute top-[2px] left-[2px] text-blue-600 opacity-70 mix-blend-screen blur-[1px]`}>MANGA</span>
+      <span className={`${size} font-black relative text-white z-10 tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]`}>MANGA</span>
+    </div>
+    
+    {/* بخش JI با رنگ متفاوت و درخشش */}
+    <div className="relative">
+       <span className={`${size} font-black absolute -top-[2px] -left-[2px] text-purple-600 opacity-80 blur-[2px]`}>JI</span>
+       <span className={`${size} font-black relative text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500 z-10 tracking-tighter drop-shadow-[0_0_15px_rgba(168,85,247,0.6)]`}>JI</span>
+    </div>
+  </div>
+);
+
 function App() {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
+
+  // --- مدیریت رویدادهای Drag & Drop ---
+  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
+  const handleDrop = (e) => {
+    e.preventDefault(); e.stopPropagation(); setIsDragging(false);
+    const droppedFiles = e.dataTransfer.files;
+    if (droppedFiles?.length > 0) {
+      const droppedFile = droppedFiles[0];
+      droppedFile.type === 'application/pdf' ? setFile(droppedFile) : setError('لطفاً فقط فایل PDF انتخاب کنید.');
+    }
+  };
+
+  const handleFileSelect = (e) => { setFile(e.target.files[0]); setError(''); };
 
   const handleUpload = async () => {
     if (!file) return;
     setLoading(true);
     setError('');
-
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-      const response = await axios.post(`${API_URL}/api/translate`, formData, {
-        responseType: 'blob', // دریافت باینری فایل
-      });
-
-      // دانلود خودکار
+      const response = await axios.post(`${API_URL}/api/translate`, formData, { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -32,56 +59,61 @@ function App() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      
-    } catch (err) {
-      console.error(err);
-      setError('خطا در ارتباط با سرور یا پردازش فایل.');
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error(err); setError('خطا در ارتباط با سرور یا پردازش فایل.'); } finally { setLoading(false); }
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-4 font-[Vazirmatn]">
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 font-[Vazirmatn] overflow-hidden">
       {/* Header */}
-      <div className="text-center mb-10">
-        <h1 className="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500 mb-2 drop-shadow-lg">
-          MANGA AI
-        </h1>
-        <p className="text-slate-400 tracking-widest uppercase text-sm">
+      <div className="text-center mb-12 relative z-10">
+        <div className="absolute -inset-10 bg-gradient-to-r from-cyan-600/30 via-purple-600/30 to-pink-600/30 rounded-full blur-3xl opacity-30 -z-10 animate-pulse"></div>
+        
+        {/* استفاده از لوگوی جدید در هدر */}
+        <MangaJiLogo className="mb-4" />
+        
+        <p className="text-slate-300 tracking-[0.2em] uppercase text-sm md:text-base font-bold bg-slate-900/50 py-2 px-4 rounded-full inline-block backdrop-blur-sm border border-slate-700/50">
           ترجمه هوشمند مانگا با استایل کمیک
         </p>
       </div>
 
       {/* Upload Box */}
-      <div className="bg-slate-800/50 backdrop-blur-lg p-8 rounded-3xl border border-slate-700 text-center w-full max-w-md shadow-2xl hover:border-cyan-500/50 transition-all duration-300">
-        
+      <div 
+        className={`bg-slate-900/60 backdrop-blur-2xl p-8 rounded-[2.5rem] border-2 text-center w-full max-w-xl shadow-2xl transition-all duration-500 relative z-10 ${
+          isDragging ? 'border-cyan-400 shadow-[0_0_50px_rgba(6,182,212,0.4)] scale-105' : 'border-slate-700/80 hover:border-slate-600 shadow-[0_0_30px_rgba(0,0,0,0.5)]'
+        }`}
+        onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
+      >
         <div 
-          className="border-2 border-dashed border-slate-600 rounded-2xl p-8 cursor-pointer hover:bg-slate-700/50 transition-colors group"
+          className="border-4 border-dashed border-slate-700/60 rounded-3xl p-12 cursor-pointer hover:bg-slate-800/40 transition-colors group relative overflow-hidden"
           onClick={() => document.getElementById('fileInput').click()}
         >
-          <input 
-            type="file" 
-            id="fileInput"
-            accept=".pdf"
-            onChange={(e) => setFile(e.target.files[0])} 
-            className="hidden"
-          />
+          <input type="file" id="fileInput" accept=".pdf" onChange={handleFileSelect} className="hidden" />
           
-          <div className="flex flex-col items-center gap-4">
+          <div className="flex flex-col items-center gap-8 z-10 relative">
             {file ? (
-              <FileText className="w-16 h-16 text-cyan-400 animate-bounce" />
+              // استفاده از لوگوی جدید وقتی فایل انتخاب شده (کمی کوچکتر)
+              <div className="animate-bounce-slow">
+                 <MangaJiLogo size="text-4xl" />
+              </div>
             ) : (
-              <Upload className="w-16 h-16 text-slate-500 group-hover:text-white transition-colors" />
+              <Upload className="w-24 h-24 text-slate-600 group-hover:text-cyan-400 transition-all duration-300 group-hover:scale-110 group-hover:rotate-12" />
             )}
-            <span className="text-lg font-medium text-slate-300">
-              {file ? file.name : "فایل PDF را اینجا رها کنید"}
-            </span>
+            
+            <div className="space-y-3">
+              <span className={`text-xl font-bold block transition-colors ${file ? 'text-cyan-300' : 'text-slate-200'}`}>
+                {file ? file.name : "فایل PDF مانگا را اینجا رها کنید"}
+              </span>
+              {!file && (
+                <span className="text-sm text-slate-400 block bg-slate-800/70 px-4 py-2 rounded-full">
+                  یا برای انتخاب کلیک کنید
+                </span>
+              )}
+            </div>
           </div>
         </div>
         
         {error && (
-          <div className="mt-4 p-3 bg-red-500/20 border border-red-500/50 text-red-200 rounded-xl text-sm">
+          <div className="mt-6 p-4 bg-red-950/40 border-r-4 border-red-500 text-red-200 rounded-l-xl text-sm font-bold text-right backdrop-blur-sm animate-shake">
             {error}
           </div>
         )}
@@ -89,26 +121,21 @@ function App() {
         <button 
           onClick={handleUpload} 
           disabled={loading || !file}
-          className={`w-full mt-6 py-4 rounded-xl font-bold text-xl flex justify-center items-center gap-3 transition-all
+          className={`w-full mt-8 py-5 rounded-2xl font-black text-xl flex justify-center items-center gap-3 transition-all duration-300 relative overflow-hidden
             ${loading || !file 
-              ? 'bg-slate-700 text-slate-500 cursor-not-allowed' 
-              : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-cyan-500/30 hover:-translate-y-1'
+              ? 'bg-slate-800 text-slate-600 cursor-not-allowed opacity-70' 
+              : 'bg-gradient-to-r from-cyan-500 via-blue-600 to-purple-700 text-white shadow-[0_5px_25px_rgba(6,182,212,0.4)] hover:shadow-[0_10px_40px_rgba(168,85,247,0.5)] hover:-translate-y-1 active:translate-y-0 active:scale-[0.98]'
             }`}
         >
-          {loading ? (
-            <>
-              <Loader2 className="animate-spin" /> در حال ترجمه...
-            </>
-          ) : (
-            <>
-              <Download /> دریافت فایل ترجمه شده
-            </>
-          )}
+          {loading && <div className="absolute inset-0 bg-white/20 animate-pulse-fast z-0"></div>}
+          <div className="relative z-10 flex items-center gap-3">
+            {loading ? <><Loader2 className="animate-spin w-7 h-7" /> در حال پردازش...</> : <><Download className="w-7 h-7" /> شروع ترجمه و دانلود</>}
+          </div>
         </button>
       </div>
       
-      <footer className="mt-12 text-slate-600 text-xs">
-        Powered by Gemini 2.5 Flash • 2025
+      <footer className="mt-16 text-slate-500 text-sm font-medium z-10 relative">
+        Powered by <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500 font-black">Gemini AI</span> • 2025
       </footer>
     </div>
   );
