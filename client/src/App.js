@@ -5,7 +5,7 @@ import { Upload, Loader2, Download, FileText } from 'lucide-react';
 // ⚡️ تنظیم آدرس سرور
 // برای لوکال: http://localhost:5000
 // برای سرور واقعی: آدرس سرور خود را اینجا بگذارید (مثلا https://my-manga-api.onrender.com)
-const API_URL = 'https://manga-translator-ib1b.onrender.com';
+const API_URL = 'https://manga-translator-site-hjtw.onrender.com';
 
 function App() {
   const [file, setFile] = useState(null);
