@@ -21,28 +21,23 @@ const upload = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 
-// --- تابع کمکی: شکستن متن ---
+// تابع شکستن متن
 function wrapText(text, font, fontSize, maxWidth) {
   if (!text) return ["..."];
   const words = text.split(' ');
   let lines = [];
   let currentLine = words[0];
-
   for (let i = 1; i < words.length; i++) {
     const word = words[i];
     const width = font.widthOfTextAtSize(currentLine + " " + word, fontSize);
-    if (width < maxWidth) {
-      currentLine += " " + word;
-    } else {
-      lines.push(currentLine);
-      currentLine = word;
-    }
+    if (width < maxWidth) currentLine += " " + word;
+    else { lines.push(currentLine); currentLine = word; }
   }
   lines.push(currentLine);
   return lines;
 }
 
-// --- تابع جدید: بررسی تداخل دو مستطیل ---
+// تابع بررسی تداخل
 function isOverlapping(rect1, rect2) {
   return (
     rect1.x < rect2.x + rect2.width &&
@@ -66,25 +61,41 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       displayName: "MangaFile",
     });
 
-    console.log("2. Analyzing with Gemini 2.5 Flash...");
+    console.log("2. Analyzing with Gemini 2.5 Flash (Ultra-Colloquial Mode)...");
     const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash", 
         generationConfig: { responseMimeType: "application/json" } 
     });
 
-    // 🔥 پرامپت بهبود یافته برای شناسایی دقیق‌تر
+    // 🔥🔥🔥 پرامپت جدید و خیلی سخت‌گیرانه برای لحن کوچه بازاری 🔥🔥🔥
     const prompt = `
-    Analyze this whole PDF page by page. 
-    **Task:** Detect ALL speech bubbles, including small SFX text and background dialogs. Do not miss any text.
-    
+    Analyze this whole PDF page by page. Identify ALL speech bubbles.
     Return a JSON array where each object contains:
     1. "page_number": Integer (1-based).
-    2. "text": Persian translation (Casual/Conversational).
+    2. "text": The Persian translation.
     3. "box_2d": [ymin, xmin, ymax, xmax] (normalized 0-1000).
 
-    **Rules:**
-    - If text is dense, translate it concisely.
-    - Be extremely precise with bounding boxes.
+    ⚠️ EXTREMELY IMPORTANT TRANSLATION RULES (TEHRANI SPOKEN PERSIAN):
+    
+    1. **NO BOOKISH LANGUAGE (ممنوعیت زبان کتابی):**
+       - NEVER use "است". Use "ـه" or drop it. (Ex: "خوب است" ❌ -> "خوبه" ✅)
+       - NEVER use "آنجا". Use "اونجا".
+       - NEVER use "آیا". Just ask the question. (Ex: "آیا می‌آیی؟" ❌ -> "میای؟" ✅)
+       - NEVER use "اکنون". Use "الان".
+       - NEVER use "بسیار". Use "خیلی".
+       - NEVER use "زیرا". Use "چون".
+
+    2. **PRONUNCIATION CHANGES (تبدیل کلمات به محاوره):**
+       - "خانه" -> "خونه"
+       - "می‌روم" -> "میرم"
+       - "آن‌ها" -> "اونا"
+       - "اگر" -> "اگه"
+       - "را" -> "رو" or "ـو" (Ex: "کتاب را" -> "کتابو")
+
+    3. **TONE (لحن):**
+       - Translate like a cool Manga Fan-Subber intended for teenagers.
+       - Use idioms and slang where appropriate.
+       - Keep sentences short and punchy.
     `;
 
     const result = await model.generateContent([
@@ -104,9 +115,8 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     const fontBytes = fs.readFileSync(fontPath); 
     const customFont = await pdfDoc.embedFont(fontBytes);
     const pages = pdfDoc.getPages();
-
-    // آرایه برای ذخیره مکان باکس‌های رسم شده در هر صفحه (برای جلوگیری از تداخل)
-    const drawnBoxes = {}; // Key: pageIndex, Value: Array of rects
+    
+    const drawnBoxes = {};
 
     for (const item of translations) {
       if (!item.box_2d || !item.text || !item.page_number) continue;
@@ -123,52 +133,42 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       const originalBoxWidth = ((xmax - xmin) / 1000) * width;
       const originalBoxY = height - ((ymax / 1000) * height);
       
-      // ✅ 1. هوشمندسازی سایز باکس و فونت
       let fontSize = 10;
       let padding = 8;
-      // اگر عرض خیلی کم بود، حداقل عرض را بیشتر می‌گیریم
       let newBoxWidth = Math.max(originalBoxWidth, 120); 
       
-      // اگر متن طولانی بود، فونت را کمی کوچک کن
-      if (item.text.length > 50) fontSize = 9;
-      if (item.text.length > 100) fontSize = 8;
-
+      if (item.text.length > 60) fontSize = 9;
+      
       let textLines = wrapText(item.text, customFont, fontSize, newBoxWidth - (padding * 2));
       let contentHeight = (textLines.length * fontSize * 1.4) + (padding * 2);
       
-      // ✅ 2. جلوگیری از تداخل (Collision Avoidance)
-      // ابتدا سعی می‌کنیم باکس را پایین باکس اصلی بگذاریم
       let newBoxY = originalBoxY - 5; 
       let finalBoxY = newBoxY - contentHeight + fontSize;
 
       let currentRect = {
         x: originalBoxX,
-        y: finalBoxY, // در pdf-lib مختصات Y از پایین صفحه است
+        y: finalBoxY,
         width: newBoxWidth,
         height: contentHeight
       };
 
-      // چک کردن تداخل با باکس‌های قبلی در همان صفحه
+      // جلوگیری از تداخل
       let overlapFound = true;
       let attempts = 0;
-      
       while (overlapFound && attempts < 5) {
         overlapFound = false;
         for (const existingBox of drawnBoxes[pageIndex]) {
           if (isOverlapping(currentRect, existingBox)) {
             overlapFound = true;
-            // اگر تداخل داشت، باکس را کمی پایین‌تر می‌بریم
             currentRect.y -= (existingBox.height + 5); 
             break; 
           }
         }
         attempts++;
       }
-
-      // ذخیره مختصات نهایی برای بررسی‌های بعدی
       drawnBoxes[pageIndex].push(currentRect);
 
-      // رسم کادر نهایی
+      // رسم کادر
       currentPage.drawRectangle({
         x: currentRect.x,
         y: currentRect.y,
@@ -176,7 +176,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
         height: currentRect.height,
         color: rgb(1, 1, 1),
         borderColor: rgb(0, 0, 0),
-        borderWidth: 1,
+        borderWidth: 1.5,
         opacity: 0.95,
       });
 
@@ -185,7 +185,6 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       for (const line of textLines) {
         const lineWidth = customFont.widthOfTextAtSize(line, fontSize);
         const centeredX = currentRect.x + (currentRect.width - lineWidth) / 2;
-        
         currentPage.drawText(line, {
           x: centeredX,
           y: currentTextY,
@@ -198,7 +197,6 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     }
 
     const pdfBytes = await pdfDoc.save();
-
     if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
 
     res.setHeader('Content-Type', 'application/pdf');
