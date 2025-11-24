@@ -26,16 +26,11 @@ function wrapText(text, font, fontSize, maxWidth) {
   const words = text.split(' ');
   let lines = [];
   let currentLine = words[0];
-
   for (let i = 1; i < words.length; i++) {
     const word = words[i];
     const width = font.widthOfTextAtSize(currentLine + " " + word, fontSize);
-    if (width < maxWidth) {
-      currentLine += " " + word;
-    } else {
-      lines.push(currentLine);
-      currentLine = word;
-    }
+    if (width < maxWidth) currentLine += " " + word;
+    else { lines.push(currentLine); currentLine = word; }
   }
   lines.push(currentLine);
   return lines;
@@ -44,9 +39,8 @@ function wrapText(text, font, fontSize, maxWidth) {
 app.post('/api/translate', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایلی ارسال نشد.' });
 
-  // 👇 دریافت حالت ترجمه از بدنه درخواست
   const translationMode = req.body.mode || 'casual';
-  console.log(`🔄 Translation Mode: ${translationMode}`);
+  console.log(`🔄 Mode: ${translationMode}`);
 
   const tempFilePath = path.join('/tmp', `upload_${Date.now()}.pdf`);
 
@@ -59,50 +53,58 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       displayName: "MangaFile",
     });
 
-    console.log("2. Analyzing with Gemini 2.5 Flash...");
+    console.log("2. Analyzing Context & Persona...");
     const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash", 
         generationConfig: { responseMimeType: "application/json" } 
     });
 
-    // 👇👇👇 تعریف پرامپت‌ها بر اساس حالت انتخاب شده 👇👇👇
-
+    // 👇👇👇 پرامپت هوشمند و شخصیت‌محور 👇👇👇
     const baseInstruction = `
-    Analyze this whole PDF page by page. Identify ALL speech bubbles.
-    Return a JSON array where each object contains:
-    1. "page_number": Integer (1-based).
-    2. "text": The Persian translation.
-    3. "box_2d": [ymin, xmin, ymax, xmax] (normalized 0-1000).
+    Analyze this PDF page by page. Detect ALL speech bubbles.
+    
+    **CRITICAL INSTRUCTION: CHARACTER ANALYSIS**
+    Before translating, look at the character speaking.
+    - **Who are they?** (A child? A monster? A polite gentleman? A thug?)
+    - **What is their emotion?** (Angry? Sarcastic? Scared?)
+    - **Translation Strategy:** Translate from the **SPEAKER'S PERSPECTIVE**. Mimic their personality in Persian.
+      - If the character is rude, the Persian should be rude.
+      - If the character is formal/shy, the Persian should be formal/shy.
+      - Do NOT force a specific tone (polite/rude) globally. Adapt to each bubble individually.
+
+    Return JSON:
+    1. "page_number": Integer.
+    2. "text": Persian translation.
+    3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000).
     `;
 
     let specificRules = '';
 
     if (translationMode === 'formal') {
-        // 📜 حالت رسمی و دقیق
+        // 📜 حالت ۱: وفادار به متن (Faithful)
+        // هدف: دقیقاً همان چیزی که گفته شده، با حفظ لحن گوینده، اما بدون تغییرات سلیقه‌ای.
         specificRules = `
-        🔥 RULES (PERSIAN - FORMAL MODE):
-        - Tone: Formal, literary, and faithful to the original text (رسمی و ادبی).
-        - Maintain the exact meaning without adding slang.
-        - Use standard grammar (e.g., "من می‌روم" instead of "من میرم").
-        - Keep sentences concise to fit bubbles.
+        🔥 MODE: FAITHFUL & FLUENT (وفادار و روان)
+        - Use standard spoken Persian (Tehrani dialect for grammar: "میرم" not "می‌روم").
+        - Be 100% faithful to the original meaning. Do not add or remove information.
+        - If the original text is "I will kill you!", translate as "میکشمت!" (Accurate, fitting the emotion).
+        - Do NOT use robotic/bookish words like "است/آیا" UNLESS the character is actually a robot or a bookish person.
         `;
     } else {
-        // 😎 حالت محاوره‌ای و باحال (پیش‌فرض)
+        // 😎 حالت ۲: محاوره‌ای و باحال (Localized/Cool)
+        // هدف: مثل یک دوبله حرفه‌ای، جملات را طوری تغییر بده که برای مخاطب ایرانی جذاب و طبیعی باشد.
         specificRules = `
-        🔥 RULES (PERSIAN - CASUAL/COOL MODE):
-        - Tone: Tehrani Spoken/Colloquial, Emotional, Anime Subtitle Style (محاوره‌ای و خودمونی).
-        - Focus on the *emotion* and *intent* of the character. Make it punchy and cool.
-        - NO BOOKISH WORDS: Never use "است", "آیا", "آنجا", "زیرا". Use "ـه", "چی", "اونجا", "چون".
-        - Use appropriate slang if the character is aggressive or funny.
+        🔥 MODE: LOCALIZED & COOL (بومی‌سازی شده و باحال)
+        - Focus on the *Impact* and *Vibe*.
+        - You are allowed to slightly change the wording to make it sound more natural/cool in Persian slang.
+        - Example: "What are you looking at?" -> (Aggressive character) -> "چیه؟ آدم ندیدی؟" or "هین؟ چته؟".
+        - Make it flow like a high-quality movie subtitle.
         `;
     }
 
-    const finalPrompt = baseInstruction + specificRules;
-    // 👆👆👆 پایان تعریف پرامپت‌ها 👆👆👆
-
     const result = await model.generateContent([
       { fileData: { mimeType: uploadResponse.file.mimeType, fileUri: uploadResponse.file.uri } },
-      { text: finalPrompt }
+      { text: baseInstruction + specificRules }
     ]);
 
     const translations = JSON.parse(result.response.text());
@@ -113,7 +115,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     pdfDoc.registerFontkit(fontkit);
     
     const fontPath = path.join(__dirname, 'font.ttf');
-    if (!fs.existsSync(fontPath)) throw new Error("فایل font.ttf یافت نشد!");
+    if (!fs.existsSync(fontPath)) throw new Error("font.ttf not found!");
     const fontBytes = fs.readFileSync(fontPath); 
     const customFont = await pdfDoc.embedFont(fontBytes);
     const pages = pdfDoc.getPages();
@@ -136,9 +138,10 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       if (item.text.length > 60) fontSize = 9;
       if (item.text.length > 100) fontSize = 8;
 
-      // 👇 افزایش پدینگ برای پوشاندن بهتر متن‌های زیری
-      const coverPadding = 5; 
+      // پدینگ برای پوشاندن کامل متن زیرین (لاک غلط‌گیر)
+      const coverPadding = 3; 
 
+      // رسم کادر سفید یکدست (بدون حاشیه)
       currentPage.drawRectangle({
         x: originalBoxX - coverPadding,
         y: originalBoxY - coverPadding,
@@ -146,7 +149,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
         height: originalBoxHeight + (coverPadding * 2),
         color: rgb(1, 1, 1),
         borderWidth: 0,
-        opacity: 1.0, // پوشش کامل
+        opacity: 1.0, // کدر برای مخفی کردن متن اصلی
       });
 
       const effectiveWidth = Math.max(originalBoxWidth - 4, 40); 
