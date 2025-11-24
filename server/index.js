@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// استفاده از حافظه رم برای سرعت بیشتر
+// استفاده از حافظه رم برای آپلود
 const upload = multer({ storage: multer.memoryStorage() });
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -42,7 +42,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایلی ارسال نشد.' });
 
   const translationMode = req.body.mode || 'casual';
-  console.log(`🔄 Translation Mode: ${translationMode}`);
+  console.log(`🔄 Mode: ${translationMode}`);
 
   const tempFilePath = path.join('/tmp', `upload_${Date.now()}.pdf`);
 
@@ -55,18 +55,22 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       displayName: "MangaFile",
     });
 
-    console.log("2. Analyzing with Gemini Flash (Fast & Stable)...");
+    console.log("2. Analyzing with Gemini 1.5 PRO (High Quality)...");
     
-    // 👇👇👇 بازگشت به مدل سریع برای جلوگیری از تایم‌اوت 👇👇👇
-    // اگر gemini-2.5-flash دارید از آن استفاده کنید، اگر نه gemini-1.5-flash
+    // 👇👇👇 استفاده از مدل قدرتمند PRO برای دقت بالا 👇👇👇
     const model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-flash", 
+        model: "gemini-1.5-pro", 
         generationConfig: { responseMimeType: "application/json" } 
     });
 
     const baseInstruction = `
-    Analyze this PDF page by page. Identify ALL speech bubbles.
-    Return a JSON array:
+    Analyze this PDF page by page. Identify ALL speech bubbles with PIXEL-PERFECT accuracy.
+    
+    **Task:**
+    1. Find the exact bounding box of the original English text.
+    2. Translate the text to Persian based on the character's emotion.
+    
+    Return JSON:
     1. "page_number": Integer.
     2. "text": Persian translation.
     3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000).
@@ -76,8 +80,8 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     if (translationMode === 'formal') {
         specificRules = `
         🔥 MODE: FAITHFUL (دقیق و روان)
-        - Use natural spoken Persian grammar ("میرم" not "می‌روم").
-        - Be accurate but NOT robotic.
+        - Translate exact meaning in natural Spoken Persian.
+        - No robotic words ("است/آیا").
         `;
     } else {
         specificRules = `
@@ -119,24 +123,25 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       const originalBoxWidth = ((xmax - xmin) / 1000) * width;
       const originalBoxHeight = ((ymax - ymin) / 1000) * height;
 
-      let fontSize = 10;
-      if (item.text.length > 60) fontSize = 9;
+      let fontSize = 11; // مدل پرو می‌تواند فونت کمی درشت‌تر را مدیریت کند
+      if (item.text.length > 60) fontSize = 10;
       if (item.text.length > 100) fontSize = 8;
 
-      // 👇 افزایش پدینگ به 6 پیکسل برای پوشش کامل با مدل Flash
-      const coverPadding = 6; 
+      // 👇 پدینگ برای پوشش کامل متن (لاک غلط‌گیر)
+      const coverPadding = 5; 
 
-      // رسم کادر سفید یکدست (Solid White)
+      // رسم کادر سفید یکدست (بدون حاشیه - Solid White)
       currentPage.drawRectangle({
         x: originalBoxX - coverPadding,
         y: originalBoxY - coverPadding,
         width: originalBoxWidth + (coverPadding * 2),
         height: originalBoxHeight + (coverPadding * 2),
-        color: rgb(1, 1, 1),
-        borderWidth: 0,
-        opacity: 1.0, 
+        color: rgb(1, 1, 1), // سفید خالص
+        borderWidth: 0,      // بدون حاشیه
+        opacity: 1.0,        // کاملاً کدر برای مخفی کردن متن زیر
       });
 
+      // محاسبه متن وسط‌چین
       const effectiveWidth = Math.max(originalBoxWidth - 4, 40); 
       let textLines = wrapText(item.text, customFont, fontSize, effectiveWidth);
       const totalTextHeight = textLines.length * (fontSize * 1.3); 
@@ -169,7 +174,8 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error("❌ Error:", error);
     if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-    res.status(500).json({ error: `Server Error: ${error.message}` });
+    // ارسال خطای دقیق
+    res.status(500).json({ error: error.message });
   }
 });
 
