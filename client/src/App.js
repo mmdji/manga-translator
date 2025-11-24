@@ -2,10 +2,8 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { Upload, Loader2, Download, ChevronDown } from 'lucide-react';
 
-// آدرس سرور (مطمئن شو که آدرس سرور رندر خودت هست)
 const API_URL = 'https://manga-translator-ib1b.onrender.com';
 
-// --- کامپوننت لوگو ---
 const MangaJiLogo = ({ className = "", size = "text-5xl md:text-7xl" }) => (
   <div className={`relative select-none flex items-center justify-center ${className}`} style={{ fontFamily: 'sans-serif' }}>
     <div className="relative mr-1">
@@ -25,8 +23,6 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
-  
-  // 👇 این استیت برای ذخیره انتخاب کاربر است
   const [mode, setMode] = useState('casual'); 
 
   const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
@@ -47,8 +43,6 @@ function App() {
     setLoading(true);
     setError('');
     const formData = new FormData();
-    
-    // 👇 اینجا انتخاب کاربر به سرور فرستاده می‌شود
     formData.append('mode', mode);
     formData.append('file', file);
 
@@ -109,11 +103,11 @@ function App() {
           </div>
         </div>
 
-        {/* 👇👇👇 منوی انتخاب حالت ترجمه 👇👇👇 */}
+        {/* 👇👇👇 دکمه‌های جدید انتخاب حالت 👇👇👇 */}
         <div className="mt-6 flex flex-col md:flex-row items-center justify-between bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50 backdrop-blur-md">
           <span className="text-slate-300 font-bold mb-3 md:mb-0 flex items-center gap-2">
             <ChevronDown className="w-5 h-5 text-purple-400" />
-             حالت ترجمه:
+             سبک ترجمه:
           </span>
           <div className="flex bg-slate-900/80 rounded-xl p-1 w-full md:w-auto rtl:flex-row-reverse">
             <button
@@ -124,7 +118,7 @@ function App() {
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
-              رسمی و دقیق
+              پایبند به متن
             </button>
             <button
               onClick={() => setMode('casual')}
@@ -134,7 +128,7 @@ function App() {
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
-              محاوره‌ای و باحال
+              باحال و آزاد
             </button>
           </div>
         </div>

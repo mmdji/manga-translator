@@ -53,22 +53,15 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       displayName: "MangaFile",
     });
 
-    console.log("2. Analyzing Context & Persona...");
+    console.log("2. Analyzing with Gemini 2.5 Flash...");
     const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash", 
         generationConfig: { responseMimeType: "application/json" } 
     });
 
-    // دستورالعمل پایه
     const baseInstruction = `
-    Analyze this PDF page by page. Detect ALL speech bubbles.
-    
-    **CRITICAL: CHARACTER & EMOTION ANALYSIS**
-    - Look at the character's face. Are they angry? Happy? Crying?
-    - Translate from the **Speaker's Perspective**.
-    - If the character is shouting, the translation must feel loud/forceful.
-
-    Return JSON:
+    Analyze this PDF page by page. Identify ALL speech bubbles.
+    Return a JSON array:
     1. "page_number": Integer.
     2. "text": Persian translation.
     3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000).
@@ -77,25 +70,32 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     let specificRules = '';
 
     if (translationMode === 'formal') {
-        // 📜 حالت ۱: دقیق و وفادار (اما با زبان امروزی)
-        // هدف: معنی دقیق باشد، اما گرامر شکسته و طبیعی باشد.
+        // 📜 حالت ۱: پایبند به متن (اما محاوره‌ای و روان)
         specificRules = `
-        🔥 MODE: FAITHFUL & NATURAL (دقیق و طبیعی)
-        - **Philosophy:** Translate the *exact meaning* of the source text, but write it in **Natural Spoken Persian** (فارسی محاوره‌ای معیار).
-        - **Grammar:** ALWAYS use spoken forms. 
-          - YES: "میرم", "میگی", "خوبه", "چطور", "الان".
-          - NO: "می‌روم", "می‌گویی", "خوب است", "چگونه", "اکنون".
-        - **Vocabulary:** Avoid archaic/bookish words like "آیا", "زیرا", "لکن", "بسیار". Use "خیلی", "چون", "اصلا".
-        - **Constraint:** Be 100% faithful to the original meaning. Do NOT add extra slang/jokes that are not in the text. Just make it sound like a real person speaking today.
+        🔥 MODE: FAITHFUL & SPOKEN (پایبند به متن ولی محاوره‌ای)
+        
+        **GOAL:** Translate the EXACT meaning without adding/removing info, BUT use **Natural Spoken Persian** grammar.
+        
+        **⛔ STRICT FORBIDDEN WORDS (NEVER USE):**
+        - ❌ "است" -> ✅ Use "ـه" (e.g., "خوب است" -> "خوبه", "عقل سلیم است" -> "عقل سلیمه").
+        - ❌ "بسیار" -> ✅ Use "خیلی".
+        - ❌ "آیا" -> ✅ Drop it (Just ask the question).
+        - ❌ "اکنون" -> ✅ Use "الان".
+        - ❌ "زیرا" -> ✅ Use "چون".
+        - ❌ "می‌روم/می‌شود" -> ✅ Use "میرم/میشه".
+
+        **✅ RULES:**
+        - Keep the translation FAITHFUL to the original English text. Do not add jokes that aren't there.
+        - Just make the sentences sound like a normal Iranian person speaking, NOT a book.
         `;
     } else {
-        // 😎 حالت ۲: باحال و آزاد (بومی‌سازی شده)
-        // هدف: حس و حال انیمه‌ای، استفاده از اصطلاحات خفن.
+        // 😎 حالت ۲: باحال و آزاد (آزاد)
         specificRules = `
-        🔥 MODE: LOCALIZED & COOL (بومی‌سازی شده و باحال)
-        - **Philosophy:** Focus on the *Vibe* and *Impact*. Make it sound like a cool Anime Dub.
-        - **Slang:** You are allowed to use Persian slang ("دمت گرم", "بیخیال", "چه غلطا") if it fits the character's mood.
-        - **Freedom:** You can slightly alter the wording to make it punchier and more emotional for a Persian audience.
+        🔥 MODE: LOCALIZED & COOL (باحال و آزاد)
+        - **Goal:** Make it sound like a cool Anime Dub / Fan-sub.
+        - **Style:** You can change the wording significantly to match the *vibe* and *emotion*.
+        - **Slang:** Use street slang ("دمت گرم", "ایول", "ضایع شد") freely if it fits.
+        - **Focus:** Impact is more important than exact word-for-word accuracy.
         `;
     }
 
@@ -135,10 +135,8 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       if (item.text.length > 60) fontSize = 9;
       if (item.text.length > 100) fontSize = 8;
 
-      // پدینگ برای پوشاندن کامل متن زیرین (لاک غلط‌گیر)
-      const coverPadding = 3; 
+      const coverPadding = 4; 
 
-      // رسم کادر سفید یکدست (بدون حاشیه)
       currentPage.drawRectangle({
         x: originalBoxX - coverPadding,
         y: originalBoxY - coverPadding,
