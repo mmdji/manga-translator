@@ -21,6 +21,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 
+// تابع شکستن متن
 function wrapText(text, font, fontSize, maxWidth) {
   if (!text) return ["..."];
   const words = text.split(' ');
@@ -64,40 +65,12 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     Return a JSON array:
     1. "page_number": Integer.
     2. "text": Persian translation.
-    3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000).
+    3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000) -> This MUST cover the ORIGINAL text perfectly.
     `;
 
-    let specificRules = '';
-
-    if (translationMode === 'formal') {
-        // 📜 حالت ۱: پایبند به متن (اما محاوره‌ای و روان)
-        specificRules = `
-        🔥 MODE: FAITHFUL & SPOKEN (پایبند به متن ولی محاوره‌ای)
-        
-        **GOAL:** Translate the EXACT meaning without adding/removing info, BUT use **Natural Spoken Persian** grammar.
-        
-        **⛔ STRICT FORBIDDEN WORDS (NEVER USE):**
-        - ❌ "است" -> ✅ Use "ـه" (e.g., "خوب است" -> "خوبه", "عقل سلیم است" -> "عقل سلیمه").
-        - ❌ "بسیار" -> ✅ Use "خیلی".
-        - ❌ "آیا" -> ✅ Drop it (Just ask the question).
-        - ❌ "اکنون" -> ✅ Use "الان".
-        - ❌ "زیرا" -> ✅ Use "چون".
-        - ❌ "می‌روم/می‌شود" -> ✅ Use "میرم/میشه".
-
-        **✅ RULES:**
-        - Keep the translation FAITHFUL to the original English text. Do not add jokes that aren't there.
-        - Just make the sentences sound like a normal Iranian person speaking, NOT a book.
-        `;
-    } else {
-        // 😎 حالت ۲: باحال و آزاد (آزاد)
-        specificRules = `
-        🔥 MODE: LOCALIZED & COOL (باحال و آزاد)
-        - **Goal:** Make it sound like a cool Anime Dub / Fan-sub.
-        - **Style:** You can change the wording significantly to match the *vibe* and *emotion*.
-        - **Slang:** Use street slang ("دمت گرم", "ایول", "ضایع شد") freely if it fits.
-        - **Focus:** Impact is more important than exact word-for-word accuracy.
-        `;
-    }
+    let specificRules = translationMode === 'formal' 
+      ? `🔥 MODE: FLUENT (روان و دقیق). Use natural spoken grammar ("میرم" not "می‌روم"). No bookish words.` 
+      : `🔥 MODE: COOL (باحال). Use slang, capture emotions like anime fansubs.`;
 
     const result = await model.generateContent([
       { fileData: { mimeType: uploadResponse.file.mimeType, fileUri: uploadResponse.file.uri } },
@@ -126,35 +99,49 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       const { width, height } = currentPage.getSize();
       const [ymin, xmin, ymax, xmax] = item.box_2d;
 
-      const originalBoxX = (xmin / 1000) * width;
-      const originalBoxY = height - ((ymax / 1000) * height);
-      const originalBoxWidth = ((xmax - xmin) / 1000) * width;
-      const originalBoxHeight = ((ymax - ymin) / 1000) * height;
+      // 1. استفاده از ابعاد دقیق باکس اصلی (انگلیسی)
+      // جمنای مختصات متن اصلی را می‌دهد، ما دقیقاً همانجا را سفید می‌کنیم
+      const boxX = (xmin / 1000) * width;
+      const boxY = height - ((ymax / 1000) * height);
+      const boxWidth = ((xmax - xmin) / 1000) * width;
+      const boxHeight = ((ymax - ymin) / 1000) * height;
 
-      let fontSize = 10;
-      if (item.text.length > 60) fontSize = 9;
-      if (item.text.length > 100) fontSize = 8;
-
-      const coverPadding = 4; 
-
+      // کشیدن مستطیل سفید دقیقاً روی متن اصلی
+      // کمی پدینگ اضافه می‌کنیم تا مطمئن شویم لبه‌های متن انگلیسی بیرون نمی‌زند
+      const cleanPadding = 3; 
       currentPage.drawRectangle({
-        x: originalBoxX - coverPadding,
-        y: originalBoxY - coverPadding,
-        width: originalBoxWidth + (coverPadding * 2),
-        height: originalBoxHeight + (coverPadding * 2),
+        x: boxX - cleanPadding,
+        y: boxY - cleanPadding,
+        width: boxWidth + (cleanPadding * 2),
+        height: boxHeight + (cleanPadding * 2),
         color: rgb(1, 1, 1),
         borderWidth: 0,
         opacity: 1.0, 
       });
 
-      const effectiveWidth = Math.max(originalBoxWidth - 4, 40); 
-      let textLines = wrapText(item.text, customFont, fontSize, effectiveWidth);
-      const totalTextHeight = textLines.length * (fontSize * 1.3); 
-      let currentTextY = originalBoxY + (originalBoxHeight / 2) + (totalTextHeight / 2) - fontSize;
+      // 2. فیت کردن متن فارسی داخل این باکس (Auto-fit)
+      // متن فارسی باید داخل همین باکسی که سفید کردیم جا بشود
+      let fontSize = 12;
+      let textLines = [];
+      let textHeight = 0;
+
+      // الگوریتم کوچک کردن فونت تا زمانی که متن جا شود
+      while (fontSize > 6) {
+        textLines = wrapText(item.text, customFont, fontSize, boxWidth);
+        textHeight = textLines.length * (fontSize * 1.2);
+        
+        if (textHeight <= boxHeight + 10) { // +10 ارفاق برای بیرون زدگی جزئی
+            break; 
+        }
+        fontSize -= 1; // فونت را کوچک کن و دوباره تست کن
+      }
+
+      // 3. نوشتن متن (وسط‌چین)
+      let currentTextY = boxY + (boxHeight / 2) + (textHeight / 2) - fontSize;
 
       for (const line of textLines) {
         const lineWidth = customFont.widthOfTextAtSize(line, fontSize);
-        const centeredX = originalBoxX + (originalBoxWidth - lineWidth) / 2;
+        const centeredX = boxX + (boxWidth - lineWidth) / 2;
         
         currentPage.drawText(line, {
           x: centeredX,
@@ -163,7 +150,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
           font: customFont,
           color: rgb(0, 0, 0),
         });
-        currentTextY -= (fontSize * 1.3);
+        currentTextY -= (fontSize * 1.2);
       }
     }
 
