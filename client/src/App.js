@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { Upload, Loader2, Download, ChevronDown } from 'lucide-react';
 
+// آدرس سرور (مطمئن شو که آدرس سرور رندر خودت هست)
 const API_URL = 'https://manga-translator-ib1b.onrender.com';
 
-// --- کامپوننت لوگو (بدون تغییر) ---
+// --- کامپوننت لوگو ---
 const MangaJiLogo = ({ className = "", size = "text-5xl md:text-7xl" }) => (
   <div className={`relative select-none flex items-center justify-center ${className}`} style={{ fontFamily: 'sans-serif' }}>
     <div className="relative mr-1">
@@ -24,8 +25,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
-  // 👇 استیت جدید برای حالت ترجمه
-  const [mode, setMode] = useState('casual'); // پیش‌فرض: محاوره‌ای
+  
+  // 👇 این استیت برای ذخیره انتخاب کاربر است
+  const [mode, setMode] = useState('casual'); 
 
   const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
   const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
@@ -45,7 +47,8 @@ function App() {
     setLoading(true);
     setError('');
     const formData = new FormData();
-    // 👇 ارسال حالت انتخاب شده به سرور
+    
+    // 👇 اینجا انتخاب کاربر به سرور فرستاده می‌شود
     formData.append('mode', mode);
     formData.append('file', file);
 
@@ -106,7 +109,7 @@ function App() {
           </div>
         </div>
 
-        {/* 👇👇👇 بخش جدید: انتخاب حالت ترجمه 👇👇👇 */}
+        {/* 👇👇👇 منوی انتخاب حالت ترجمه 👇👇👇 */}
         <div className="mt-6 flex flex-col md:flex-row items-center justify-between bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50 backdrop-blur-md">
           <span className="text-slate-300 font-bold mb-3 md:mb-0 flex items-center gap-2">
             <ChevronDown className="w-5 h-5 text-purple-400" />
@@ -115,7 +118,7 @@ function App() {
           <div className="flex bg-slate-900/80 rounded-xl p-1 w-full md:w-auto rtl:flex-row-reverse">
             <button
               onClick={() => setMode('formal')}
-              className={`flex-1 md:flex-none px-6 py-2 rounded-lg font-bold transition-all duration-300 ${
+              className={`flex-1 md:flex-none px-4 py-2 rounded-lg font-bold text-sm transition-all duration-300 ${
                 mode === 'formal'
                   ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -125,7 +128,7 @@ function App() {
             </button>
             <button
               onClick={() => setMode('casual')}
-              className={`flex-1 md:flex-none px-6 py-2 rounded-lg font-bold transition-all duration-300 ${
+              className={`flex-1 md:flex-none px-4 py-2 rounded-lg font-bold text-sm transition-all duration-300 ${
                 mode === 'casual'
                   ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-lg'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -135,7 +138,6 @@ function App() {
             </button>
           </div>
         </div>
-        {/* 👆👆👆 پایان بخش جدید 👆👆👆 */}
         
         {error && (
           <div className="mt-6 p-4 bg-red-950/40 border-r-4 border-red-500 text-red-200 rounded-l-xl text-sm font-bold text-right backdrop-blur-sm animate-shake">
