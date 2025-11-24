@@ -21,7 +21,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 
-// تابع شکستن متن (Word Wrapping)
+// تابع شکستن متن
 function wrapText(text, font, fontSize, maxWidth) {
   if (!text) return ["..."];
   const words = text.split(' ');
@@ -56,20 +56,19 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
 
     console.log("2. Analyzing with Gemini 2.5 Flash...");
     
-    // 👇👇👇 مدل سریع و پایدار 👇👇👇
+    // مدل سریع و پایدار
     const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash", 
         generationConfig: { responseMimeType: "application/json" } 
     });
 
-    // پرامپت دقیق برای گرفتن مختصات
     const baseInstruction = `
     Analyze this PDF page by page. Identify ALL speech bubbles.
     Return JSON array:
     1. "page_number": Integer.
     2. "text": Persian translation.
     3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000). 
-       **IMPORTANT:** The box MUST cover the ORIGINAL English text exactly.
+       IMPORTANT: The box MUST cover the ORIGINAL English text exactly.
     `;
 
     let specificRules = translationMode === 'formal' 
@@ -103,48 +102,47 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       const { width, height } = currentPage.getSize();
       const [ymin, xmin, ymax, xmax] = item.box_2d;
 
-      // 1. مختصات دقیق کادر انگلیسی (بدون تغییر اندازه)
+      // 1. مختصات دقیق کادر انگلیسی
       const boxX = (xmin / 1000) * width;
       const boxY = height - ((ymax / 1000) * height);
       const boxWidth = ((xmax - xmin) / 1000) * width;
       const boxHeight = ((ymax - ymin) / 1000) * height;
 
-      // رسم لاک غلط‌گیر (سفید خالص بدون حاشیه)
-      // کمی (3 پیکسل) پدینگ می‌دهیم تا لبه‌های متن انگلیسی بیرون نزند
-      const cleanPadding = 3; 
+      // 👇 تنظیمات جدید: پدینگ ۵ پیکسل
+      const cleanPadding = 5; 
+
+      // رسم لاک غلط‌گیر (سفید خالص - رنگ بک‌گراند کاغذ)
       currentPage.drawRectangle({
         x: boxX - cleanPadding,
         y: boxY - cleanPadding,
         width: boxWidth + (cleanPadding * 2),
         height: boxHeight + (cleanPadding * 2),
-        color: rgb(1, 1, 1),
+        color: rgb(1, 1, 1), // سفید خالص (رنگ کاغذ)
         borderWidth: 0,
         opacity: 1.0, 
       });
 
-      // 2. الگوریتم Auto-Fit (جایگذاری دقیق متن فارسی در کادر)
-      // فونت را آنقدر کوچک می‌کند تا متن فارسی دقیقاً در کادر سفید جا شود.
-      let fontSize = 12;
+      // 2. الگوریتم Auto-Fit با شروع از سایز ۱۸
+      let fontSize = 18; // 👈 شروع سایز فونت از ۱۸
       let textLines = [];
       let textHeight = 0;
 
-      // عرض مفید برای نوشتن (کمی کمتر از عرض کل باکس)
-      const writableWidth = boxWidth - 2;
+      // عرض مفید برای نوشتن (باکس اصلی منهای حاشیه ایمنی)
+      const writableWidth = boxWidth + (cleanPadding * 1.5); 
 
-      while (fontSize > 5) {
+      // کوچک کردن فونت تا زمانی که متن در باکس جا شود
+      while (fontSize > 6) {
         textLines = wrapText(item.text, customFont, fontSize, writableWidth);
-        // محاسبه ارتفاع کل متن با این سایز فونت
         textHeight = textLines.length * (fontSize * 1.2);
         
-        // اگر ارتفاع متن کمتر از ارتفاع باکس بود، یعنی جا شد!
-        if (textHeight <= boxHeight + 5) { 
+        // اگر ارتفاع متن کمتر از ارتفاع باکس (با کمی ارفاق) بود
+        if (textHeight <= boxHeight + (cleanPadding * 2) + 10) { 
             break; 
         }
-        fontSize -= 0.5; // نیم واحد فونت را کوچک کن و دوباره چک کن
+        fontSize -= 1; // کاهش سایز
       }
 
       // 3. نوشتن متن (وسط‌چین دقیق)
-      // محاسبه نقطه شروع Y برای اینکه متن دقیقاً در مرکز عمودی باکس باشد
       let currentTextY = boxY + (boxHeight / 2) + (textHeight / 2) - fontSize + 2;
 
       for (const line of textLines) {
