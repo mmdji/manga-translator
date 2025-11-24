@@ -16,11 +16,13 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// استفاده از حافظه رم برای سرعت بیشتر
 const upload = multer({ storage: multer.memoryStorage() });
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 
+// تابع شکستن متن
 function wrapText(text, font, fontSize, maxWidth) {
   if (!text) return ["..."];
   const words = text.split(' ');
@@ -40,6 +42,8 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایلی ارسال نشد.' });
 
   const translationMode = req.body.mode || 'casual';
+  console.log(`🔄 Translation Mode: ${translationMode}`);
+
   const tempFilePath = path.join('/tmp', `upload_${Date.now()}.pdf`);
 
   try {
@@ -51,37 +55,35 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       displayName: "MangaFile",
     });
 
-    console.log("2. Analyzing with Gemini 1.5 PRO (High Precision)...");
+    console.log("2. Analyzing with Gemini Flash (Fast & Stable)...");
     
-    // 👇👇👇 استفاده از مدل قدرتمند PRO 👇👇👇
+    // 👇👇👇 بازگشت به مدل سریع برای جلوگیری از تایم‌اوت 👇👇👇
+    // اگر gemini-2.5-flash دارید از آن استفاده کنید، اگر نه gemini-1.5-flash
     const model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-pro", 
+        model: "gemini-1.5-flash", 
         generationConfig: { responseMimeType: "application/json" } 
     });
 
     const baseInstruction = `
-    Analyze this PDF page by page. 
-    **CRITICAL TASK:** Detect speech bubbles with PIXEL-PERFECT ACCURACY.
-    
-    Return JSON:
+    Analyze this PDF page by page. Identify ALL speech bubbles.
+    Return a JSON array:
     1. "page_number": Integer.
     2. "text": Persian translation.
-    3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000). 
-       **IMPORTANT:** The box MUST cover the original text completely.
+    3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000).
     `;
 
     let specificRules = '';
     if (translationMode === 'formal') {
         specificRules = `
         🔥 MODE: FAITHFUL (دقیق و روان)
-        - Translate exact meaning.
-        - Use natural spoken grammar ("میرم" not "می‌روم").
+        - Use natural spoken Persian grammar ("میرم" not "می‌روم").
+        - Be accurate but NOT robotic.
         `;
     } else {
         specificRules = `
         🔥 MODE: COOL (باحال و آزاد)
         - Anime Fan-sub style. 
-        - Focus on emotion and punchy lines.
+        - Use slang/emotions freely.
         `;
     }
 
@@ -117,26 +119,24 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       const originalBoxWidth = ((xmax - xmin) / 1000) * width;
       const originalBoxHeight = ((ymax - ymin) / 1000) * height;
 
-      // 👇 تنظیمات فونت
-      let fontSize = 11; // برای مدل پرو کمی فونت بزرگتر بهتر است
-      if (item.text.length > 50) fontSize = 10;
+      let fontSize = 10;
+      if (item.text.length > 60) fontSize = 9;
       if (item.text.length > 100) fontSize = 8;
 
-      // 👇 پدینگ زیاد برای اطمینان از پاک شدن متن انگلیسی
-      const coverPadding = 5; 
+      // 👇 افزایش پدینگ به 6 پیکسل برای پوشش کامل با مدل Flash
+      const coverPadding = 6; 
 
-      // رسم کادر سفید یکدست (Solid White - Like White-out fluid)
+      // رسم کادر سفید یکدست (Solid White)
       currentPage.drawRectangle({
         x: originalBoxX - coverPadding,
         y: originalBoxY - coverPadding,
         width: originalBoxWidth + (coverPadding * 2),
         height: originalBoxHeight + (coverPadding * 2),
-        color: rgb(1, 1, 1), // سفید خالص
-        borderWidth: 0,      // بدون حاشیه
-        opacity: 1.0,        // کاملاً کدر
+        color: rgb(1, 1, 1),
+        borderWidth: 0,
+        opacity: 1.0, 
       });
 
-      // محاسبه متن برای وسط‌چین شدن
       const effectiveWidth = Math.max(originalBoxWidth - 4, 40); 
       let textLines = wrapText(item.text, customFont, fontSize, effectiveWidth);
       const totalTextHeight = textLines.length * (fontSize * 1.3); 
@@ -169,7 +169,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error("❌ Error:", error);
     if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: `Server Error: ${error.message}` });
   }
 });
 
