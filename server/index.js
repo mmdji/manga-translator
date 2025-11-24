@@ -59,18 +59,14 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
         generationConfig: { responseMimeType: "application/json" } 
     });
 
-    // 👇👇👇 پرامپت هوشمند و شخصیت‌محور 👇👇👇
+    // دستورالعمل پایه
     const baseInstruction = `
     Analyze this PDF page by page. Detect ALL speech bubbles.
     
-    **CRITICAL INSTRUCTION: CHARACTER ANALYSIS**
-    Before translating, look at the character speaking.
-    - **Who are they?** (A child? A monster? A polite gentleman? A thug?)
-    - **What is their emotion?** (Angry? Sarcastic? Scared?)
-    - **Translation Strategy:** Translate from the **SPEAKER'S PERSPECTIVE**. Mimic their personality in Persian.
-      - If the character is rude, the Persian should be rude.
-      - If the character is formal/shy, the Persian should be formal/shy.
-      - Do NOT force a specific tone (polite/rude) globally. Adapt to each bubble individually.
+    **CRITICAL: CHARACTER & EMOTION ANALYSIS**
+    - Look at the character's face. Are they angry? Happy? Crying?
+    - Translate from the **Speaker's Perspective**.
+    - If the character is shouting, the translation must feel loud/forceful.
 
     Return JSON:
     1. "page_number": Integer.
@@ -81,24 +77,25 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     let specificRules = '';
 
     if (translationMode === 'formal') {
-        // 📜 حالت ۱: وفادار به متن (Faithful)
-        // هدف: دقیقاً همان چیزی که گفته شده، با حفظ لحن گوینده، اما بدون تغییرات سلیقه‌ای.
+        // 📜 حالت ۱: دقیق و وفادار (اما با زبان امروزی)
+        // هدف: معنی دقیق باشد، اما گرامر شکسته و طبیعی باشد.
         specificRules = `
-        🔥 MODE: FAITHFUL & FLUENT (وفادار و روان)
-        - Use standard spoken Persian (Tehrani dialect for grammar: "میرم" not "می‌روم").
-        - Be 100% faithful to the original meaning. Do not add or remove information.
-        - If the original text is "I will kill you!", translate as "میکشمت!" (Accurate, fitting the emotion).
-        - Do NOT use robotic/bookish words like "است/آیا" UNLESS the character is actually a robot or a bookish person.
+        🔥 MODE: FAITHFUL & NATURAL (دقیق و طبیعی)
+        - **Philosophy:** Translate the *exact meaning* of the source text, but write it in **Natural Spoken Persian** (فارسی محاوره‌ای معیار).
+        - **Grammar:** ALWAYS use spoken forms. 
+          - YES: "میرم", "میگی", "خوبه", "چطور", "الان".
+          - NO: "می‌روم", "می‌گویی", "خوب است", "چگونه", "اکنون".
+        - **Vocabulary:** Avoid archaic/bookish words like "آیا", "زیرا", "لکن", "بسیار". Use "خیلی", "چون", "اصلا".
+        - **Constraint:** Be 100% faithful to the original meaning. Do NOT add extra slang/jokes that are not in the text. Just make it sound like a real person speaking today.
         `;
     } else {
-        // 😎 حالت ۲: محاوره‌ای و باحال (Localized/Cool)
-        // هدف: مثل یک دوبله حرفه‌ای، جملات را طوری تغییر بده که برای مخاطب ایرانی جذاب و طبیعی باشد.
+        // 😎 حالت ۲: باحال و آزاد (بومی‌سازی شده)
+        // هدف: حس و حال انیمه‌ای، استفاده از اصطلاحات خفن.
         specificRules = `
         🔥 MODE: LOCALIZED & COOL (بومی‌سازی شده و باحال)
-        - Focus on the *Impact* and *Vibe*.
-        - You are allowed to slightly change the wording to make it sound more natural/cool in Persian slang.
-        - Example: "What are you looking at?" -> (Aggressive character) -> "چیه؟ آدم ندیدی؟" or "هین؟ چته؟".
-        - Make it flow like a high-quality movie subtitle.
+        - **Philosophy:** Focus on the *Vibe* and *Impact*. Make it sound like a cool Anime Dub.
+        - **Slang:** You are allowed to use Persian slang ("دمت گرم", "بیخیال", "چه غلطا") if it fits the character's mood.
+        - **Freedom:** You can slightly alter the wording to make it punchier and more emotional for a Persian audience.
         `;
     }
 
@@ -149,7 +146,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
         height: originalBoxHeight + (coverPadding * 2),
         color: rgb(1, 1, 1),
         borderWidth: 0,
-        opacity: 1.0, // کدر برای مخفی کردن متن اصلی
+        opacity: 1.0, 
       });
 
       const effectiveWidth = Math.max(originalBoxWidth - 4, 40); 
