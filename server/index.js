@@ -16,13 +16,12 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// استفاده از حافظه رم برای آپلود
 const upload = multer({ storage: multer.memoryStorage() });
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 
-// تابع شکستن متن
+// تابع شکستن متن (Word Wrapping)
 function wrapText(text, font, fontSize, maxWidth) {
   if (!text) return ["..."];
   const words = text.split(' ');
@@ -55,41 +54,27 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       displayName: "MangaFile",
     });
 
-    console.log("2. Analyzing with Gemini 1.5 PRO (High Quality)...");
+    console.log("2. Analyzing with Gemini 2.5 Flash...");
     
-    // 👇👇👇 استفاده از مدل قدرتمند PRO برای دقت بالا 👇👇👇
+    // 👇👇👇 مدل سریع و پایدار 👇👇👇
     const model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-pro", 
+        model: "gemini-2.5-flash", 
         generationConfig: { responseMimeType: "application/json" } 
     });
 
+    // پرامپت دقیق برای گرفتن مختصات
     const baseInstruction = `
-    Analyze this PDF page by page. Identify ALL speech bubbles with PIXEL-PERFECT accuracy.
-    
-    **Task:**
-    1. Find the exact bounding box of the original English text.
-    2. Translate the text to Persian based on the character's emotion.
-    
-    Return JSON:
+    Analyze this PDF page by page. Identify ALL speech bubbles.
+    Return JSON array:
     1. "page_number": Integer.
     2. "text": Persian translation.
-    3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000).
+    3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000). 
+       **IMPORTANT:** The box MUST cover the ORIGINAL English text exactly.
     `;
 
-    let specificRules = '';
-    if (translationMode === 'formal') {
-        specificRules = `
-        🔥 MODE: FAITHFUL (دقیق و روان)
-        - Translate exact meaning in natural Spoken Persian.
-        - No robotic words ("است/آیا").
-        `;
-    } else {
-        specificRules = `
-        🔥 MODE: COOL (باحال و آزاد)
-        - Anime Fan-sub style. 
-        - Use slang/emotions freely.
-        `;
-    }
+    let specificRules = translationMode === 'formal' 
+      ? `🔥 MODE: FAITHFUL (دقیق و روان) - Natural spoken grammar, no bookish words.` 
+      : `🔥 MODE: COOL (باحال و آزاد) - Anime Fan-sub style, punchy & emotional.`;
 
     const result = await model.generateContent([
       { fileData: { mimeType: uploadResponse.file.mimeType, fileUri: uploadResponse.file.uri } },
@@ -118,38 +103,54 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       const { width, height } = currentPage.getSize();
       const [ymin, xmin, ymax, xmax] = item.box_2d;
 
-      const originalBoxX = (xmin / 1000) * width;
-      const originalBoxY = height - ((ymax / 1000) * height);
-      const originalBoxWidth = ((xmax - xmin) / 1000) * width;
-      const originalBoxHeight = ((ymax - ymin) / 1000) * height;
+      // 1. مختصات دقیق کادر انگلیسی (بدون تغییر اندازه)
+      const boxX = (xmin / 1000) * width;
+      const boxY = height - ((ymax / 1000) * height);
+      const boxWidth = ((xmax - xmin) / 1000) * width;
+      const boxHeight = ((ymax - ymin) / 1000) * height;
 
-      let fontSize = 11; // مدل پرو می‌تواند فونت کمی درشت‌تر را مدیریت کند
-      if (item.text.length > 60) fontSize = 10;
-      if (item.text.length > 100) fontSize = 8;
-
-      // 👇 پدینگ برای پوشش کامل متن (لاک غلط‌گیر)
-      const coverPadding = 5; 
-
-      // رسم کادر سفید یکدست (بدون حاشیه - Solid White)
+      // رسم لاک غلط‌گیر (سفید خالص بدون حاشیه)
+      // کمی (3 پیکسل) پدینگ می‌دهیم تا لبه‌های متن انگلیسی بیرون نزند
+      const cleanPadding = 3; 
       currentPage.drawRectangle({
-        x: originalBoxX - coverPadding,
-        y: originalBoxY - coverPadding,
-        width: originalBoxWidth + (coverPadding * 2),
-        height: originalBoxHeight + (coverPadding * 2),
-        color: rgb(1, 1, 1), // سفید خالص
-        borderWidth: 0,      // بدون حاشیه
-        opacity: 1.0,        // کاملاً کدر برای مخفی کردن متن زیر
+        x: boxX - cleanPadding,
+        y: boxY - cleanPadding,
+        width: boxWidth + (cleanPadding * 2),
+        height: boxHeight + (cleanPadding * 2),
+        color: rgb(1, 1, 1),
+        borderWidth: 0,
+        opacity: 1.0, 
       });
 
-      // محاسبه متن وسط‌چین
-      const effectiveWidth = Math.max(originalBoxWidth - 4, 40); 
-      let textLines = wrapText(item.text, customFont, fontSize, effectiveWidth);
-      const totalTextHeight = textLines.length * (fontSize * 1.3); 
-      let currentTextY = originalBoxY + (originalBoxHeight / 2) + (totalTextHeight / 2) - fontSize;
+      // 2. الگوریتم Auto-Fit (جایگذاری دقیق متن فارسی در کادر)
+      // فونت را آنقدر کوچک می‌کند تا متن فارسی دقیقاً در کادر سفید جا شود.
+      let fontSize = 12;
+      let textLines = [];
+      let textHeight = 0;
+
+      // عرض مفید برای نوشتن (کمی کمتر از عرض کل باکس)
+      const writableWidth = boxWidth - 2;
+
+      while (fontSize > 5) {
+        textLines = wrapText(item.text, customFont, fontSize, writableWidth);
+        // محاسبه ارتفاع کل متن با این سایز فونت
+        textHeight = textLines.length * (fontSize * 1.2);
+        
+        // اگر ارتفاع متن کمتر از ارتفاع باکس بود، یعنی جا شد!
+        if (textHeight <= boxHeight + 5) { 
+            break; 
+        }
+        fontSize -= 0.5; // نیم واحد فونت را کوچک کن و دوباره چک کن
+      }
+
+      // 3. نوشتن متن (وسط‌چین دقیق)
+      // محاسبه نقطه شروع Y برای اینکه متن دقیقاً در مرکز عمودی باکس باشد
+      let currentTextY = boxY + (boxHeight / 2) + (textHeight / 2) - fontSize + 2;
 
       for (const line of textLines) {
         const lineWidth = customFont.widthOfTextAtSize(line, fontSize);
-        const centeredX = originalBoxX + (originalBoxWidth - lineWidth) / 2;
+        // وسط‌چین افقی
+        const centeredX = boxX + (boxWidth - lineWidth) / 2;
         
         currentPage.drawText(line, {
           x: centeredX,
@@ -158,7 +159,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
           font: customFont,
           color: rgb(0, 0, 0),
         });
-        currentTextY -= (fontSize * 1.3);
+        currentTextY -= (fontSize * 1.2);
       }
     }
 
@@ -174,7 +175,6 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error("❌ Error:", error);
     if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-    // ارسال خطای دقیق
     res.status(500).json({ error: error.message });
   }
 });
