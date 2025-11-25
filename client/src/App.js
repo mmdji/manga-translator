@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { Upload, Loader2, Download, ChevronDown } from 'lucide-react';
 
-const API_URL = 'https://manga-translator-ib1b.onrender.com';
+const API_URL = 'https://manga-backend-ssgc.onrender.com';
 
 const MangaJiLogo = ({ className = "", size = "text-5xl md:text-7xl" }) => (
   <div className={`relative select-none flex items-center justify-center ${className}`} style={{ fontFamily: 'sans-serif' }}>
