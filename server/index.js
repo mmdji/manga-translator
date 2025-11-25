@@ -21,7 +21,6 @@ const upload = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 
-// تابع شکستن متن
 function wrapText(text, font, fontSize, maxWidth) {
   if (!text) return ["..."];
   const words = text.split(' ');
@@ -41,7 +40,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایلی ارسال نشد.' });
 
   const translationMode = req.body.mode || 'casual';
-  console.log(`🔄 Mode: ${translationMode}`);
+  console.log(`🔄 Mode: ${translationMode} | Model: Gemini 2.5 PRO`);
 
   const tempFilePath = path.join('/tmp', `upload_${Date.now()}.pdf`);
 
@@ -54,21 +53,23 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       displayName: "MangaFile",
     });
 
-    console.log("2. Analyzing with Gemini 2.5 Flash...");
+    console.log("2. Analyzing with Gemini 2.5 PRO (High Precision)...");
     
-    // مدل سریع و پایدار
+    // 👇👇👇 تغییر به مدل قدرتمند PRO 👇👇👇
     const model = genAI.getGenerativeModel({ 
-        model: "gemini-2.5-flash", 
+        model: "gemini-2.5-pro", // تغییر نام مدل
         generationConfig: { responseMimeType: "application/json" } 
     });
 
     const baseInstruction = `
-    Analyze this PDF page by page. Identify ALL speech bubbles.
-    Return JSON array:
+    Analyze this PDF page by page. 
+    **CRITICAL TASK:** Detect speech bubbles with PIXEL-PERFECT ACCURACY.
+    
+    Return JSON:
     1. "page_number": Integer.
     2. "text": Persian translation.
     3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000). 
-       IMPORTANT: The box MUST cover the ORIGINAL English text exactly.
+       **IMPORTANT:** The box MUST cover the original text completely.
     `;
 
     let specificRules = translationMode === 'formal' 
@@ -102,53 +103,44 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       const { width, height } = currentPage.getSize();
       const [ymin, xmin, ymax, xmax] = item.box_2d;
 
-      // 1. مختصات دقیق کادر انگلیسی
-      const boxX = (xmin / 1000) * width;
-      const boxY = height - ((ymax / 1000) * height);
-      const boxWidth = ((xmax - xmin) / 1000) * width;
-      const boxHeight = ((ymax - ymin) / 1000) * height;
+      const originalBoxX = (xmin / 1000) * width;
+      const originalBoxY = height - ((ymax / 1000) * height);
+      const originalBoxWidth = ((xmax - xmin) / 1000) * width;
+      const originalBoxHeight = ((ymax - ymin) / 1000) * height;
 
-      // 👇 تنظیمات جدید: پدینگ ۵ پیکسل
-      const cleanPadding = 5; 
+      // 👇 چون مدل پرو دقیق است، پدینگ را کمی کمتر می‌کنیم تا ظریف‌تر شود
+      // (البته هنوز مقداری لازم است تا مطمئن شویم متن انگلیسی کاملا محو شود)
+      const coverPadding = 4; 
 
-      // رسم لاک غلط‌گیر (سفید خالص - رنگ بک‌گراند کاغذ)
+      // رسم کادر سفید یکدست (Solid White)
       currentPage.drawRectangle({
-        x: boxX - cleanPadding,
-        y: boxY - cleanPadding,
-        width: boxWidth + (cleanPadding * 2),
-        height: boxHeight + (cleanPadding * 2),
-        color: rgb(1, 1, 1), // سفید خالص (رنگ کاغذ)
+        x: originalBoxX - coverPadding,
+        y: originalBoxY - coverPadding,
+        width: originalBoxWidth + (coverPadding * 2),
+        height: originalBoxHeight + (coverPadding * 2),
+        color: rgb(1, 1, 1),
         borderWidth: 0,
         opacity: 1.0, 
       });
 
-      // 2. الگوریتم Auto-Fit با شروع از سایز ۱۸
-      let fontSize = 18; // 👈 شروع سایز فونت از ۱۸
+      // الگوریتم فیت کردن متن
+      let fontSize = 13; // شروع با فونت کمی درشت‌تر برای خوانایی
       let textLines = [];
       let textHeight = 0;
+      const writableWidth = originalBoxWidth + (coverPadding); 
 
-      // عرض مفید برای نوشتن (باکس اصلی منهای حاشیه ایمنی)
-      const writableWidth = boxWidth + (cleanPadding * 1.5); 
-
-      // کوچک کردن فونت تا زمانی که متن در باکس جا شود
       while (fontSize > 6) {
         textLines = wrapText(item.text, customFont, fontSize, writableWidth);
-        textHeight = textLines.length * (fontSize * 1.2);
-        
-        // اگر ارتفاع متن کمتر از ارتفاع باکس (با کمی ارفاق) بود
-        if (textHeight <= boxHeight + (cleanPadding * 2) + 10) { 
-            break; 
-        }
-        fontSize -= 1; // کاهش سایز
+        textHeight = textLines.length * (fontSize * 1.3);
+        if (textHeight <= originalBoxHeight + (coverPadding * 2) + 5) break; 
+        fontSize -= 0.5;
       }
 
-      // 3. نوشتن متن (وسط‌چین دقیق)
-      let currentTextY = boxY + (boxHeight / 2) + (textHeight / 2) - fontSize + 2;
+      let currentTextY = originalBoxY + (originalBoxHeight / 2) + (textHeight / 2) - fontSize + 1;
 
       for (const line of textLines) {
         const lineWidth = customFont.widthOfTextAtSize(line, fontSize);
-        // وسط‌چین افقی
-        const centeredX = boxX + (boxWidth - lineWidth) / 2;
+        const centeredX = originalBoxX + (originalBoxWidth - lineWidth) / 2;
         
         currentPage.drawText(line, {
           x: centeredX,
@@ -157,7 +149,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
           font: customFont,
           color: rgb(0, 0, 0),
         });
-        currentTextY -= (fontSize * 1.2);
+        currentTextY -= (fontSize * 1.3);
       }
     }
 
