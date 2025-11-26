@@ -57,7 +57,7 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     
     // 👇👇👇 تغییر به مدل قدرتمند PRO 👇👇👇
     const model = genAI.getGenerativeModel({ 
-        model: "gemini-2.5-pro", // تغییر نام مدل
+        model: "gemini-2.5-flash", // تغییر نام مدل
         generationConfig: { responseMimeType: "application/json" } 
     });
 
