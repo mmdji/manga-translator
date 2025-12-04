@@ -16,11 +16,13 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// استفاده از حافظه رم برای سرعت بالا
 const upload = multer({ storage: multer.memoryStorage() });
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 
+// تابع شکستن متن (Word Wrapping)
 function wrapText(text, font, fontSize, maxWidth) {
   if (!text) return ["..."];
   const words = text.split(' ');
@@ -39,57 +41,75 @@ function wrapText(text, font, fontSize, maxWidth) {
 app.post('/api/translate', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'فایلی ارسال نشد.' });
 
+  // دریافت استایل ترجمه از فرانت (پیش‌فرض: محاوره‌ای)
   const translationMode = req.body.mode || 'casual';
-  console.log(`🔄 Mode: ${translationMode} | Model: Gemini 2.5 PRO`);
+  console.log(`🔄 Translation Strategy: ${translationMode}`);
 
   const tempFilePath = path.join('/tmp', `upload_${Date.now()}.pdf`);
 
   try {
     fs.writeFileSync(tempFilePath, req.file.buffer);
 
-    console.log("1. Uploading to Google...");
+    console.log("1. Uploading PDF to Gemini Banana...");
     const uploadResponse = await fileManager.uploadFile(tempFilePath, {
       mimeType: "application/pdf",
       displayName: "MangaFile",
     });
 
-    console.log("2. Analyzing with Gemini 2.5 PRO (High Precision)...");
+    console.log("2. Analyzing Page-by-Page with 'nano-banana-pro-preview'...");
     
-    // 👇👇👇 تغییر به مدل قدرتمند PRO 👇👇👇
+    // 👇👇👇 استفاده از مدل خاص بنانا 👇👇👇
     const model = genAI.getGenerativeModel({ 
-        model: "gemini-2.5-flash", // تغییر نام مدل
+        model: "nano-banana-pro-preview", 
         generationConfig: { responseMimeType: "application/json" } 
     });
 
+    // پرامپت متمرکز بر ترجمه محاوره‌ای و آنالیز تصویری
     const baseInstruction = `
-    Analyze this PDF page by page. 
-    **CRITICAL TASK:** Detect speech bubbles with PIXEL-PERFECT ACCURACY.
+    You are an expert Manga Localizer. 
+    Analyze this PDF file visually, page by page.
     
-    Return JSON:
-    1. "page_number": Integer.
-    2. "text": Persian translation.
-    3. "box_2d": [ymin, xmin, ymax, xmax] (0-1000). 
-       **IMPORTANT:** The box MUST cover the original text completely.
+    **MISSION:**
+    1. Detect ALL speech bubbles using Vision capabilities.
+    2. Extract the bounding box EXACTLY covering the original text.
+    3. Translate the text into **Natural Spoken Persian (Farsi)**.
+    
+    **TRANSLATION RULES (CRITICAL):**
+    - Tone: **Conversational & Colloquial** (زبان محاوره‌ای و گفتاری).
+    - Do NOT use bookish words (e.g., replace "است" with "ـه", "آیا" with tone change).
+    - Capture the character's emotion (Shouting, Whispering, Sarcasm).
+    - If the text is SFX (Sound Effect), keep it or translate it phonetically.
+
+    Return a JSON array of objects:
+    {
+      "page_number": Integer (1-based),
+      "text": "Persian Translation",
+      "box_2d": [ymin, xmin, ymax, xmax] (normalized 0-1000)
+    }
     `;
 
-    let specificRules = translationMode === 'formal' 
-      ? `🔥 MODE: FAITHFUL (دقیق و روان) - Natural spoken grammar, no bookish words.` 
-      : `🔥 MODE: COOL (باحال و آزاد) - Anime Fan-sub style, punchy & emotional.`;
+    // تنظیمات اضافه بر اساس مود انتخابی کاربر
+    let modeRules = "";
+    if (translationMode === 'formal') {
+        modeRules = "NOTE: Keep the grammar slightly more standard but still fluent (Like official subtitles).";
+    } else {
+        modeRules = "NOTE: Go full casual/slang! Make it sound like a cool dub.";
+    }
 
     const result = await model.generateContent([
       { fileData: { mimeType: uploadResponse.file.mimeType, fileUri: uploadResponse.file.uri } },
-      { text: baseInstruction + specificRules }
+      { text: baseInstruction + modeRules }
     ]);
 
     const translations = JSON.parse(result.response.text());
-    console.log(`✅ Found ${translations.length} dialogs.`);
+    console.log(`✅ Extracted ${translations.length} segments.`);
 
-    console.log("3. Generating PDF...");
+    console.log("3. Reconstructing PDF...");
     const pdfDoc = await PDFDocument.load(req.file.buffer);
     pdfDoc.registerFontkit(fontkit);
     
     const fontPath = path.join(__dirname, 'font.ttf');
-    if (!fs.existsSync(fontPath)) throw new Error("font.ttf not found!");
+    if (!fs.existsSync(fontPath)) throw new Error("فایل فونت یافت نشد!");
     const fontBytes = fs.readFileSync(fontPath); 
     const customFont = await pdfDoc.embedFont(fontBytes);
     const pages = pdfDoc.getPages();
@@ -103,51 +123,52 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
       const { width, height } = currentPage.getSize();
       const [ymin, xmin, ymax, xmax] = item.box_2d;
 
-      const originalBoxX = (xmin / 1000) * width;
-      const originalBoxY = height - ((ymax / 1000) * height);
-      const originalBoxWidth = ((xmax - xmin) / 1000) * width;
-      const originalBoxHeight = ((ymax - ymin) / 1000) * height;
+      // تبدیل مختصات
+      const boxX = (xmin / 1000) * width;
+      const boxY = height - ((ymax / 1000) * height);
+      const boxWidth = ((xmax - xmin) / 1000) * width;
+      const boxHeight = ((ymax - ymin) / 1000) * height;
 
-      // 👇 چون مدل پرو دقیق است، پدینگ را کمی کمتر می‌کنیم تا ظریف‌تر شود
-      // (البته هنوز مقداری لازم است تا مطمئن شویم متن انگلیسی کاملا محو شود)
+      // 👇 رسم لکه سفید (White-out) برای پاک کردن متن اصلی
+      // پدینگ 4 پیکسل برای اطمینان از پوشش کامل
       const coverPadding = 4; 
-
-      // رسم کادر سفید یکدست (Solid White)
       currentPage.drawRectangle({
-        x: originalBoxX - coverPadding,
-        y: originalBoxY - coverPadding,
-        width: originalBoxWidth + (coverPadding * 2),
-        height: originalBoxHeight + (coverPadding * 2),
-        color: rgb(1, 1, 1),
-        borderWidth: 0,
-        opacity: 1.0, 
+        x: boxX - coverPadding,
+        y: boxY - coverPadding,
+        width: boxWidth + (coverPadding * 2),
+        height: boxHeight + (coverPadding * 2),
+        color: rgb(1, 1, 1), // سفید خالص
+        borderWidth: 0,      // بدون حاشیه
+        opacity: 1.0,        // کاملاً کدر
       });
 
-      // الگوریتم فیت کردن متن
-      let fontSize = 13; // شروع با فونت کمی درشت‌تر برای خوانایی
+      // 👇 جایگذاری متن فارسی (Auto-Fit)
+      let fontSize = 14; // شروع با سایز استاندارد مانگا
       let textLines = [];
       let textHeight = 0;
-      const writableWidth = originalBoxWidth + (coverPadding); 
+      const writableWidth = boxWidth + 2; 
 
+      // کاهش سایز فونت تا زمانی که جا شود
       while (fontSize > 6) {
         textLines = wrapText(item.text, customFont, fontSize, writableWidth);
-        textHeight = textLines.length * (fontSize * 1.3);
-        if (textHeight <= originalBoxHeight + (coverPadding * 2) + 5) break; 
+        textHeight = textLines.length * (fontSize * 1.3); // 1.3 فاصله خطوط
+        if (textHeight <= boxHeight + 10) break; // +10 ارفاق
         fontSize -= 0.5;
       }
 
-      let currentTextY = originalBoxY + (originalBoxHeight / 2) + (textHeight / 2) - fontSize + 1;
+      // محاسبه موقعیت وسط‌چین
+      let currentTextY = boxY + (boxHeight / 2) + (textHeight / 2) - fontSize + 2;
 
       for (const line of textLines) {
         const lineWidth = customFont.widthOfTextAtSize(line, fontSize);
-        const centeredX = originalBoxX + (originalBoxWidth - lineWidth) / 2;
+        const centeredX = boxX + (boxWidth - lineWidth) / 2;
         
         currentPage.drawText(line, {
           x: centeredX,
           y: currentTextY,
           size: fontSize,
           font: customFont,
-          color: rgb(0, 0, 0),
+          color: rgb(0, 0, 0), // متن مشکی
         });
         currentTextY -= (fontSize * 1.3);
       }
